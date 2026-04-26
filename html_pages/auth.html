@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NexTalk — Sign In / Register</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="auth-page">
+    <div class="auth-card">
+      <!-- Logo -->
+      <div class="auth-logo">
+        <div class="logo-text">Nex<span>Talk</span></div>
+      </div>
+      <p class="auth-subtitle">Real-Time Chat — Powered by WebSockets</p>
+
+      <!-- Tabs -->
+      <div class="auth-tabs">
+        <button
+          class="auth-tab active"
+          id="tab-login"
+          onclick="switchTab('login', this)"
+        >
+          Sign In
+        </button>
+        <button
+          class="auth-tab"
+          id="tab-register"
+          onclick="switchTab('register', this)"
+        >
+          Create Account
+        </button>
+      </div>
+
+      <!-- ── Toast / Error Message ── -->
+      <div id="auth-toast" class="auth-toast"></div>
+
+      <!-- ── Login Panel ── -->
+      <div class="form-panel active" id="panel-login">
+        <form id="login-form" onsubmit="handleLogin(event)">
+          <div class="form-group">
+            <label class="form-label" for="login-email"
+              >Email or Username</label
+            >
+            <input
+              class="form-input"
+              type="text"
+              id="login-email"
+              name="email_or_username"
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="login-password">Password</label>
+            <input
+              class="form-input"
+              type="password"
+              id="login-password"
+              name="password"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+          <div class="checkbox-row">
+            <input type="checkbox" id="remember" />
+            <label for="remember">Remember me for 30 days</label>
+            <a
+              href="#"
+              style="
+                margin-left: auto;
+                font-size: 0.82rem;
+                color: var(--blue);
+                font-weight: 600;
+              "
+              >Forgot password?</a
+            >
+          </div>
+          <button type="submit" class="btn-submit" id="btn-login">
+            <span class="btn-text">Sign In →</span>
+            <span class="btn-loader" style="display: none">Signing in...</span>
+          </button>
+        </form>
+        <div class="form-footer">
+          Don't have an account?
+          <a href="#" onclick="switchTabByName('register')">Create one free</a>
+        </div>
+      </div>
+
+      <!-- ── Register Panel ── -->
+      <div class="form-panel" id="panel-register">
+        <form id="register-form" onsubmit="handleRegister(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="reg-fname">First Name</label>
+              <input
+                class="form-input"
+                type="text"
+                id="reg-fname"
+                name="first_name"
+                placeholder="Ali"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="reg-lname">Last Name</label>
+              <input
+                class="form-input"
+                type="text"
+                id="reg-lname"
+                name="last_name"
+                placeholder="Hassan"
+                required
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-username">Username</label>
+            <input
+              class="form-input"
+              type="text"
+              id="reg-username"
+              name="username"
+              placeholder="alihassan123"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-email">Email Address</label>
+            <input
+              class="form-input"
+              type="email"
+              id="reg-email"
+              name="email"
+              placeholder="ali@example.com"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-password">Password</label>
+            <input
+              class="form-input"
+              type="password"
+              id="reg-password"
+              name="password"
+              placeholder="At least 8 characters"
+              required
+              minlength="8"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-confirm">Confirm Password</label>
+            <input
+              class="form-input"
+              type="password"
+              id="reg-confirm"
+              name="confirm"
+              placeholder="Re-enter password"
+              required
+            />
+          </div>
+          <button type="submit" class="btn-submit" id="btn-register">
+            <span class="btn-text">Create My Account →</span>
+            <span class="btn-loader" style="display: none"
+              >Creating account...</span
+            >
+          </button>
+        </form>
+        <div class="form-footer">
+          Already registered?
+          <a href="#" onclick="switchTabByName('login')">Sign in here</a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ── Tab Switching ──
+      function switchTab(name, btn) {
+        document
+          .querySelectorAll(".auth-tab")
+          .forEach((t) => t.classList.remove("active"));
+        document
+          .querySelectorAll(".form-panel")
+          .forEach((p) => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById("panel-" + name).classList.add("active");
+        hideToast();
+      }
+      function switchTabByName(name) {
+        const idx = name === "login" ? 0 : 1;
+        const tabs = document.querySelectorAll(".auth-tab");
+        switchTab(name, tabs[idx]);
+      }
+
+      // ── Toast Helpers ──
+      function showToast(msg, type) {
+        const toast = document.getElementById("auth-toast");
+        toast.textContent = msg;
+        toast.className = "auth-toast " + type + " visible";
+      }
+      function hideToast() {
+        const toast = document.getElementById("auth-toast");
+        toast.className = "auth-toast";
+      }
+
+      // ── Set button loading state ──
+      function setLoading(btnId, loading) {
+        const btn = document.getElementById(btnId);
+        const text = btn.querySelector(".btn-text");
+        const loader = btn.querySelector(".btn-loader");
+        btn.disabled = loading;
+        text.style.display = loading ? "none" : "inline";
+        loader.style.display = loading ? "inline" : "none";
+        btn.style.opacity = loading ? "0.7" : "1";
+      }
+
+      // ══════════════════════════════════════════
+      //  LOGIN — fetch + FormData (AJAX)
+      // ══════════════════════════════════════════
+      async function handleLogin(e) {
+        e.preventDefault();
+        hideToast();
+        setLoading("btn-login", true);
+
+        const form = document.getElementById("login-form");
+        const formData = new FormData(form);
+
+        try {
+          const response = await fetch("../api/login.php", {
+            method: "POST",
+            body: formData,
+          });
+
+          const raw = await response.text();
+          let data;
+          try {
+            data = JSON.parse(raw);
+          } catch (_) {
+            throw new Error(
+              raw || "Unexpected server response during sign in.",
+            );
+          }
+
+          if (data.success) {
+            showToast(data.message, "success");
+            // Redirect to dashboard after brief delay
+            setTimeout(() => {
+              window.location.href = "dashboard.html";
+            }, 800);
+          } else {
+            showToast(data.message, "error");
+            setLoading("btn-login", false);
+          }
+        } catch (err) {
+          const message =
+            err && err.message
+              ? err.message
+              : "Network error. Please check your connection.";
+          showToast(message, "error");
+          setLoading("btn-login", false);
+        }
+      }
+
+      // ══════════════════════════════════════════
+      //  REGISTER — fetch + FormData (AJAX)
+      // ══════════════════════════════════════════
+      async function handleRegister(e) {
+        e.preventDefault();
+        hideToast();
+
+        // Client-side password match check
+        const pass = document.getElementById("reg-password").value;
+        const conf = document.getElementById("reg-confirm").value;
+        if (pass !== conf) {
+          showToast("Passwords do not match.", "error");
+          return;
+        }
+
+        setLoading("btn-register", true);
+
+        const form = document.getElementById("register-form");
+        const formData = new FormData(form);
+
+        try {
+          const response = await fetch("../api/register.php", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            showToast(data.message, "success");
+            // Redirect to dashboard after brief delay
+            setTimeout(() => {
+              window.location.href = "dashboard.html";
+            }, 800);
+          } else {
+            showToast(data.message, "error");
+            setLoading("btn-register", false);
+          }
+        } catch (err) {
+          showToast("Network error. Please check your connection.", "error");
+          setLoading("btn-register", false);
+        }
+      }
+
+      // ── If already logged in, redirect to dashboard ──
+      (async function checkExistingSession() {
+        try {
+          const res = await fetch("../api/check_auth.php");
+          const data = await res.json();
+          if (data.authenticated) {
+            window.location.href = "dashboard.html";
+          }
+        } catch (e) {
+          /* ignore — user is not logged in */
+        }
+      })();
+    </script>
+  </body>
+</html>

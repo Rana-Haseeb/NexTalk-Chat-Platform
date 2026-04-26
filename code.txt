@@ -1,0 +1,4099 @@
+
+==================================================
+File: api\check_auth.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Session Auth Check
+// Protects pages/APIs — include or call via AJAX
+// ==============================================
+session_start();
+header("Content-Type: application/json");
+require_once "roles.php";
+
+$requiredRole = nex_normalize_role($_GET["required_role"] ?? NEX_ROLE_MEMBER);
+
+if (isset($_SESSION["logged_in"]) && $_SESSION["logged_in"] === true) {
+    $role = nex_normalize_role($_SESSION["role"] ?? NEX_ROLE_MEMBER);
+
+    if (!nex_has_min_role($role, $requiredRole)) {
+        http_response_code(403);
+        echo json_encode([
+            "authenticated" => true,
+            "authorized" => false,
+            "message" => "You do not have permission to access this resource.",
+            "required_role" => $requiredRole,
+            "user_role" => $role,
+        ]);
+        exit;
+    }
+
+    echo json_encode([
+        "authenticated" => true,
+        "authorized" => true,
+        "user" => [
+            "id"         => $_SESSION["user_id"],
+            "username"   => $_SESSION["username"],
+            "first_name" => $_SESSION["first_name"],
+            "last_name"  => $_SESSION["last_name"],
+            "email"      => $_SESSION["email"],
+            "role"       => $role,
+            "role_label" => nex_role_label($role),
+            "permissions" => nex_role_permissions($role),
+        ]
+    ]);
+} else {
+    http_response_code(401);
+    echo json_encode([
+        "authenticated" => false,
+        "message"       => "Not logged in. Access denied."
+    ]);
+}
+
+
+==================================================
+File: api\create_room.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Create Room API (POST)
+// Requires: minimum 'moderator' role
+// ==============================================
+session_start();
+header("Content-Type: application/json");
+
+// Only POST allowed
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+    http_response_code(405);
+    echo json_encode(["success" => false, "message" => "Method not allowed."]);
+    exit;
+}
+
+require_once "db.php";
+require_once "roles.php";
+
+// ── Auth & Role Check ──
+if (!isset($_SESSION["logged_in"]) || $_SESSION["logged_in"] !== true) {
+    http_response_code(401);
+    echo json_encode(["success" => false, "message" => "Not logged in."]);
+    exit;
+}
+
+$userRole = nex_normalize_role($_SESSION["role"] ?? NEX_ROLE_MEMBER);
+if (!nex_has_min_role($userRole, NEX_ROLE_MODERATOR)) {
+    http_response_code(403);
+    echo json_encode(["success" => false, "message" => "You need at least Moderator access to create rooms."]);
+    exit;
+}
+
+// ── Input Validation ──
+$name        = trim($_POST["name"] ?? "");
+$description = trim($_POST["description"] ?? "");
+
+if (empty($name)) {
+    echo json_encode(["success" => false, "message" => "Room name is required."]);
+    exit;
+}
+
+if (strlen($name) > 100) {
+    echo json_encode(["success" => false, "message" => "Room name must be 100 characters or less."]);
+    exit;
+}
+
+if (strlen($description) > 255) {
+    echo json_encode(["success" => false, "message" => "Description must be 255 characters or less."]);
+    exit;
+}
+
+// ── Check for duplicate room name ──
+try {
+    $check = $pdo->prepare("SELECT id FROM rooms WHERE name = :name LIMIT 1");
+    $check->execute([":name" => $name]);
+    if ($check->fetch()) {
+        echo json_encode(["success" => false, "message" => "A room with this name already exists."]);
+        exit;
+    }
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error while checking room name."]);
+    exit;
+}
+
+// ── Insert Room ──
+try {
+    $stmt = $pdo->prepare(
+        "INSERT INTO rooms (name, description, created_by) VALUES (:name, :description, :created_by)"
+    );
+    $stmt->execute([
+        ":name"        => $name,
+        ":description" => $description,
+        ":created_by"  => $_SESSION["user_id"],
+    ]);
+
+    $newRoomId = $pdo->lastInsertId();
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Room '{$name}' created successfully!",
+        "room"    => [
+            "id"          => (int)$newRoomId,
+            "name"        => $name,
+            "description" => $description,
+            "created_by"  => $_SESSION["user_id"],
+        ]
+    ]);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error while creating the room."]);
+    exit;
+}
+
+
+==================================================
+File: api\db.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Database Connection
+// ==============================================
+
+$host     = "localhost";
+$dbname   = "nextalk_db";
+$username = "root";
+$password = "";          // default XAMPP/MAMP password
+
+try {
+    $pdo = new PDO(
+        "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
+        $username,
+        $password,
+        [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ]
+    );
+
+    // Ensure role-based access is supported for existing DBs.
+    $tableCheck = $pdo->query(
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'users'"
+    );
+
+    if ((int)$tableCheck->fetchColumn() > 0) {
+        $colCheck = $pdo->query(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'users'
+               AND COLUMN_NAME = 'role'"
+        );
+
+        if ((int)$colCheck->fetchColumn() === 0) {
+            $pdo->exec(
+                "ALTER TABLE users
+                 ADD COLUMN role ENUM('admin','moderator','member') NOT NULL DEFAULT 'member' AFTER password"
+            );
+        }
+
+        $pdo->exec("UPDATE users SET role = 'member' WHERE role IS NULL OR role = ''");
+
+        $adminCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
+        if ($adminCount === 0) {
+            $pdo->exec(
+                "UPDATE users
+                 SET role = 'admin'
+                 ORDER BY id ASC
+                 LIMIT 1"
+            );
+        }
+    }
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Database connection failed."]);
+    exit;
+}
+
+
+==================================================
+File: api\delete_room.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Delete Room API (POST)
+// Requires: 'admin' role
+// ==============================================
+session_start();
+header("Content-Type: application/json");
+
+// Only POST allowed
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+    http_response_code(405);
+    echo json_encode(["success" => false, "message" => "Method not allowed."]);
+    exit;
+}
+
+require_once "db.php";
+require_once "roles.php";
+
+// ── Auth & Role Check ──
+if (!isset($_SESSION["logged_in"]) || $_SESSION["logged_in"] !== true) {
+    http_response_code(401);
+    echo json_encode(["success" => false, "message" => "Not logged in."]);
+    exit;
+}
+
+$userRole = nex_normalize_role($_SESSION["role"] ?? NEX_ROLE_MEMBER);
+if (!nex_has_min_role($userRole, NEX_ROLE_ADMIN)) {
+    http_response_code(403);
+    echo json_encode(["success" => false, "message" => "Only Admins can delete rooms."]);
+    exit;
+}
+
+// ── Input Validation ──
+$roomId = intval($_POST["id"] ?? 0);
+
+if ($roomId <= 0) {
+    echo json_encode(["success" => false, "message" => "Invalid room ID."]);
+    exit;
+}
+
+// ── Check room exists ──
+try {
+    $check = $pdo->prepare("SELECT id, name FROM rooms WHERE id = :id LIMIT 1");
+    $check->execute([":id" => $roomId]);
+    $room = $check->fetch();
+
+    if (!$room) {
+        echo json_encode(["success" => false, "message" => "Room not found."]);
+        exit;
+    }
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error while verifying room."]);
+    exit;
+}
+
+// ── Delete Room ──
+try {
+    $stmt = $pdo->prepare("DELETE FROM rooms WHERE id = :id");
+    $stmt->execute([":id" => $roomId]);
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Room '{$room['name']}' deleted successfully.",
+    ]);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error while deleting the room."]);
+    exit;
+}
+
+
+==================================================
+File: api\get_rooms.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Get All Rooms API (GET)
+// Requires: any authenticated user
+// ==============================================
+session_start();
+header("Content-Type: application/json");
+
+require_once "db.php";
+
+// ── Auth Check ──
+if (!isset($_SESSION["logged_in"]) || $_SESSION["logged_in"] !== true) {
+    http_response_code(401);
+    echo json_encode(["success" => false, "message" => "Not logged in."]);
+    exit;
+}
+
+// ── Fetch All Rooms (JOIN with users to get creator username) ──
+try {
+    $stmt = $pdo->query(
+        "SELECT r.id, r.name, r.description, r.created_by, r.created_at,
+                u.username AS creator_username
+         FROM rooms r
+         LEFT JOIN users u ON r.created_by = u.id
+         ORDER BY r.created_at DESC"
+    );
+    $rooms = $stmt->fetchAll();
+
+    echo json_encode([
+        "success" => true,
+        "rooms"   => $rooms,
+    ]);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error while fetching rooms."]);
+    exit;
+}
+
+
+==================================================
+File: api\login.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Login API (AJAX + Sessions)
+// ==============================================
+session_start();
+header("Content-Type: application/json");
+
+// Only POST allowed
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+    http_response_code(405);
+    echo json_encode(["success" => false, "message" => "Method not allowed."]);
+    exit;
+}
+
+require_once "db.php";
+require_once "roles.php";
+
+// Grab form data (sent via FormData from fetch)
+$emailOrUsername = trim($_POST["email_or_username"] ?? "");
+$password        = $_POST["password"] ?? "";
+
+// ── Validation ──
+if (empty($emailOrUsername) || empty($password)) {
+    echo json_encode(["success" => false, "message" => "Please fill in all fields."]);
+    exit;
+}
+
+// ── Find user by email OR username ──
+try {
+    $stmt = $pdo->prepare(
+        "SELECT * FROM users WHERE email = :email OR username = :username LIMIT 1"
+    );
+    $stmt->execute([
+        ":email" => $emailOrUsername,
+        ":username" => $emailOrUsername,
+    ]);
+    $user = $stmt->fetch();
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error during sign in."]);
+    exit;
+}
+
+if (!$user) {
+    echo json_encode(["success" => false, "message" => "No account found with that email or username."]);
+    exit;
+}
+
+// ── Verify password ──
+if (!password_verify($password, $user["password"])) {
+    echo json_encode(["success" => false, "message" => "Incorrect password. Please try again."]);
+    exit;
+}
+
+$role = nex_normalize_role($user["role"] ?? NEX_ROLE_MEMBER);
+$permissions = nex_role_permissions($role);
+
+// ── Create session ──
+$_SESSION["user_id"]    = $user["id"];
+$_SESSION["username"]   = $user["username"] ?? "";
+$_SESSION["first_name"] = $user["first_name"] ?? "";
+$_SESSION["last_name"]  = $user["last_name"] ?? "";
+$_SESSION["email"]      = $user["email"] ?? "";
+$_SESSION["role"]       = $role;
+$_SESSION["logged_in"]  = true;
+
+echo json_encode([
+    "success" => true,
+    "message" => "Login successful! Redirecting...",
+    "user"    => [
+        "id"         => $user["id"],
+        "username"   => $user["username"] ?? "",
+        "first_name" => $user["first_name"] ?? "",
+        "last_name"  => $user["last_name"] ?? "",
+        "email"      => $user["email"] ?? "",
+        "role"       => $role,
+        "role_label" => nex_role_label($role),
+        "permissions" => $permissions,
+    ]
+]);
+
+
+==================================================
+File: api\logout.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Logout API (session_destroy)
+// ==============================================
+session_start();
+header("Content-Type: application/json");
+
+// Clear all session variables
+$_SESSION = [];
+
+// Delete session cookie
+if (ini_get("session.use_cookies")) {
+    $params = session_get_cookie_params();
+    setcookie(
+        session_name(),
+        '',
+        time() - 42000,
+        $params["path"],
+        $params["domain"],
+        $params["secure"],
+        $params["httponly"]
+    );
+}
+
+// Destroy session
+session_destroy();
+
+echo json_encode([
+    "success" => true,
+    "message" => "Logged out successfully."
+]);
+
+
+==================================================
+File: api\register.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Register API (AJAX + Sessions)
+// ==============================================
+session_start();
+header("Content-Type: application/json");
+
+// Only POST allowed
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+    http_response_code(405);
+    echo json_encode(["success" => false, "message" => "Method not allowed."]);
+    exit;
+}
+
+require_once "db.php";
+require_once "roles.php";
+
+// Grab form data
+$firstName = trim($_POST["first_name"] ?? "");
+$lastName  = trim($_POST["last_name"]  ?? "");
+$username  = trim($_POST["username"]   ?? "");
+$email     = trim($_POST["email"]      ?? "");
+$password  = $_POST["password"]        ?? "";
+$confirm   = $_POST["confirm"]         ?? "";
+
+// ── Validation ──
+if (empty($firstName) || empty($lastName) || empty($username) || empty($email) || empty($password)) {
+    echo json_encode(["success" => false, "message" => "All fields are required."]);
+    exit;
+}
+
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    echo json_encode(["success" => false, "message" => "Please enter a valid email address."]);
+    exit;
+}
+
+if (strlen($password) < 8) {
+    echo json_encode(["success" => false, "message" => "Password must be at least 8 characters."]);
+    exit;
+}
+
+if ($password !== $confirm) {
+    echo json_encode(["success" => false, "message" => "Passwords do not match."]);
+    exit;
+}
+
+// ── Check if username or email already exists ──
+$stmt = $pdo->prepare("SELECT id FROM users WHERE username = :u OR email = :e LIMIT 1");
+$stmt->execute([":u" => $username, ":e" => $email]);
+
+if ($stmt->fetch()) {
+    echo json_encode(["success" => false, "message" => "Username or email is already registered."]);
+    exit;
+}
+
+// ── Insert new user ──
+$hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+$role = NEX_ROLE_MEMBER;
+
+$stmt = $pdo->prepare(
+    "INSERT INTO users (first_name, last_name, username, email, password, role) VALUES (:fn, :ln, :u, :e, :p, :r)"
+);
+$stmt->execute([
+    ":fn" => $firstName,
+    ":ln" => $lastName,
+    ":u"  => $username,
+    ":e"  => $email,
+    ":p"  => $hashedPassword,
+    ":r"  => $role,
+]);
+
+$newUserId = $pdo->lastInsertId();
+
+// ── Auto-login: Create session ──
+$_SESSION["user_id"]    = $newUserId;
+$_SESSION["username"]   = $username;
+$_SESSION["first_name"] = $firstName;
+$_SESSION["last_name"]  = $lastName;
+$_SESSION["email"]      = $email;
+$_SESSION["role"]       = $role;
+$_SESSION["logged_in"]  = true;
+
+echo json_encode([
+    "success" => true,
+    "message" => "Account created successfully! Redirecting...",
+    "user"    => [
+        "id"         => $newUserId,
+        "username"   => $username,
+        "first_name" => $firstName,
+        "last_name"  => $lastName,
+        "email"      => $email,
+        "role"       => $role,
+        "role_label" => nex_role_label($role),
+        "permissions" => nex_role_permissions($role),
+    ]
+]);
+
+
+==================================================
+File: api\roles.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Role Helpers
+// ==============================================
+
+const NEX_ROLE_MEMBER = "member";
+const NEX_ROLE_MODERATOR = "moderator";
+const NEX_ROLE_ADMIN = "admin";
+
+function nex_valid_roles() {
+    return [NEX_ROLE_MEMBER, NEX_ROLE_MODERATOR, NEX_ROLE_ADMIN];
+}
+
+function nex_normalize_role($role) {
+    $normalized = strtolower(trim((string)$role));
+    return in_array($normalized, nex_valid_roles(), true) ? $normalized : NEX_ROLE_MEMBER;
+}
+
+function nex_role_rank($role) {
+    $rankMap = [
+        NEX_ROLE_MEMBER => 1,
+        NEX_ROLE_MODERATOR => 2,
+        NEX_ROLE_ADMIN => 3,
+    ];
+    $normalized = nex_normalize_role($role);
+    return $rankMap[$normalized];
+}
+
+function nex_has_min_role($actualRole, $requiredRole) {
+    return nex_role_rank($actualRole) >= nex_role_rank($requiredRole);
+}
+
+function nex_role_label($role) {
+    $normalized = nex_normalize_role($role);
+    $labels = [
+        NEX_ROLE_MEMBER => "Member",
+        NEX_ROLE_MODERATOR => "Moderator",
+        NEX_ROLE_ADMIN => "Admin",
+    ];
+    return $labels[$normalized];
+}
+
+function nex_role_permissions($role) {
+    $normalized = nex_normalize_role($role);
+    return [
+        "can_manage_roles" => nex_has_min_role($normalized, NEX_ROLE_ADMIN),
+        "can_moderate_messages" => nex_has_min_role($normalized, NEX_ROLE_MODERATOR),
+        "can_manage_room_settings" => nex_has_min_role($normalized, NEX_ROLE_MODERATOR),
+    ];
+}
+
+
+==================================================
+File: api\update_room.php
+==================================================
+
+
+<?php
+// ==============================================
+// NexTalk — Update Room API (POST)
+// Requires: minimum 'moderator' role
+// ==============================================
+session_start();
+header("Content-Type: application/json");
+
+// Only POST allowed
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+    http_response_code(405);
+    echo json_encode(["success" => false, "message" => "Method not allowed."]);
+    exit;
+}
+
+require_once "db.php";
+require_once "roles.php";
+
+// ── Auth & Role Check ──
+if (!isset($_SESSION["logged_in"]) || $_SESSION["logged_in"] !== true) {
+    http_response_code(401);
+    echo json_encode(["success" => false, "message" => "Not logged in."]);
+    exit;
+}
+
+$userRole = nex_normalize_role($_SESSION["role"] ?? NEX_ROLE_MEMBER);
+if (!nex_has_min_role($userRole, NEX_ROLE_MODERATOR)) {
+    http_response_code(403);
+    echo json_encode(["success" => false, "message" => "You need at least Moderator access to update rooms."]);
+    exit;
+}
+
+// ── Input Validation ──
+$roomId      = intval($_POST["id"] ?? 0);
+$name        = trim($_POST["name"] ?? "");
+$description = trim($_POST["description"] ?? "");
+
+if ($roomId <= 0) {
+    echo json_encode(["success" => false, "message" => "Invalid room ID."]);
+    exit;
+}
+
+if (empty($name)) {
+    echo json_encode(["success" => false, "message" => "Room name is required."]);
+    exit;
+}
+
+if (strlen($name) > 100) {
+    echo json_encode(["success" => false, "message" => "Room name must be 100 characters or less."]);
+    exit;
+}
+
+if (strlen($description) > 255) {
+    echo json_encode(["success" => false, "message" => "Description must be 255 characters or less."]);
+    exit;
+}
+
+// ── Check room exists ──
+try {
+    $check = $pdo->prepare("SELECT id FROM rooms WHERE id = :id LIMIT 1");
+    $check->execute([":id" => $roomId]);
+    if (!$check->fetch()) {
+        echo json_encode(["success" => false, "message" => "Room not found."]);
+        exit;
+    }
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error while verifying room."]);
+    exit;
+}
+
+// ── Check for duplicate name (excluding current room) ──
+try {
+    $dup = $pdo->prepare("SELECT id FROM rooms WHERE name = :name AND id != :id LIMIT 1");
+    $dup->execute([":name" => $name, ":id" => $roomId]);
+    if ($dup->fetch()) {
+        echo json_encode(["success" => false, "message" => "Another room with this name already exists."]);
+        exit;
+    }
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error while checking name uniqueness."]);
+    exit;
+}
+
+// ── Update Room ──
+try {
+    $stmt = $pdo->prepare(
+        "UPDATE rooms SET name = :name, description = :description WHERE id = :id"
+    );
+    $stmt->execute([
+        ":name"        => $name,
+        ":description" => $description,
+        ":id"          => $roomId,
+    ]);
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Room updated successfully!",
+        "room"    => [
+            "id"          => $roomId,
+            "name"        => $name,
+            "description" => $description,
+        ]
+    ]);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(["success" => false, "message" => "Server error while updating the room."]);
+    exit;
+}
+
+
+==================================================
+File: database\nextalk.sql
+==================================================
+
+
+-- ==============================================
+-- NexTalk — Database Setup
+-- Web Technology SE3003 | Phase 1
+-- ==============================================
+
+CREATE DATABASE IF NOT EXISTS `nextalk_db`;
+USE `nextalk_db`;
+
+-- users table
+CREATE TABLE IF NOT EXISTS `users` (
+  `id`         INT AUTO_INCREMENT PRIMARY KEY,
+  `first_name` VARCHAR(50)  NOT NULL,
+  `last_name`  VARCHAR(50)  NOT NULL,
+  `username`   VARCHAR(50)  NOT NULL UNIQUE,
+  `email`      VARCHAR(100) NOT NULL UNIQUE,
+  `password`   VARCHAR(255) NOT NULL,  -- bcrypt hash
+  `role`       ENUM('admin', 'moderator', 'member') NOT NULL DEFAULT 'member',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Insert demo users (password = "password123")
+INSERT INTO `users` (`first_name`, `last_name`, `username`, `email`, `password`, `role`)
+VALUES
+  ('Ali', 'Hassan', 'alihassan', 'ali@example.com', '$2y$10$2rk5q3RnWm5Akd3MnGeIUudJL8YbQU9afLyddOAcdDhq3QXweo3tS', 'admin'),
+  ('Sara', 'Ahmed', 'saraahmed', 'sara@example.com', '$2y$10$2rk5q3RnWm5Akd3MnGeIUudJL8YbQU9afLyddOAcdDhq3QXweo3tS', 'moderator'),
+  ('Usman', 'Khan', 'usmankhan', 'usman@example.com', '$2y$10$2rk5q3RnWm5Akd3MnGeIUudJL8YbQU9afLyddOAcdDhq3QXweo3tS', 'member');
+
+
+==================================================
+File: database\rooms.sql
+==================================================
+
+
+-- ==============================================
+-- NexTalk — Rooms Table Setup
+-- Web Technology SE3003 | Phase 2 (Deliverable 2)
+-- ==============================================
+
+USE `nextalk_db`;
+
+-- rooms table
+CREATE TABLE IF NOT EXISTS `rooms` (
+  `id`          INT AUTO_INCREMENT PRIMARY KEY,
+  `name`        VARCHAR(100) NOT NULL UNIQUE,
+  `description` VARCHAR(255) DEFAULT NULL,
+  `created_by`  INT NOT NULL,
+  `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_rooms_created_by` FOREIGN KEY (`created_by`) REFERENCES `users`(`id`)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Insert dummy rooms (created_by = 1 → Admin user "alihassan")
+INSERT INTO `rooms` (`name`, `description`, `created_by`) VALUES
+  ('general',        'General discussion for all members.',           1),
+  ('web-tech-se3003','Web Technology SE3003 course discussion.',      1),
+  ('off-topic',      'Casual chats, memes, and gaming talk.',         2),
+  ('project-ideas',  'Brainstorm and share new project concepts.',    2),
+  ('announcements',  'Official announcements from admins only.',      1);
+
+
+==================================================
+File: html_pages\auth.html
+==================================================
+
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NexTalk — Sign In / Register</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="auth-page">
+    <div class="auth-card">
+      <!-- Logo -->
+      <div class="auth-logo">
+        <div class="logo-text">Nex<span>Talk</span></div>
+      </div>
+      <p class="auth-subtitle">Real-Time Chat — Powered by WebSockets</p>
+
+      <!-- Tabs -->
+      <div class="auth-tabs">
+        <button
+          class="auth-tab active"
+          id="tab-login"
+          onclick="switchTab('login', this)"
+        >
+          Sign In
+        </button>
+        <button
+          class="auth-tab"
+          id="tab-register"
+          onclick="switchTab('register', this)"
+        >
+          Create Account
+        </button>
+      </div>
+
+      <!-- ── Toast / Error Message ── -->
+      <div id="auth-toast" class="auth-toast"></div>
+
+      <!-- ── Login Panel ── -->
+      <div class="form-panel active" id="panel-login">
+        <form id="login-form" onsubmit="handleLogin(event)">
+          <div class="form-group">
+            <label class="form-label" for="login-email"
+              >Email or Username</label
+            >
+            <input
+              class="form-input"
+              type="text"
+              id="login-email"
+              name="email_or_username"
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="login-password">Password</label>
+            <input
+              class="form-input"
+              type="password"
+              id="login-password"
+              name="password"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+          <div class="checkbox-row">
+            <input type="checkbox" id="remember" />
+            <label for="remember">Remember me for 30 days</label>
+            <a
+              href="#"
+              style="
+                margin-left: auto;
+                font-size: 0.82rem;
+                color: var(--blue);
+                font-weight: 600;
+              "
+              >Forgot password?</a
+            >
+          </div>
+          <button type="submit" class="btn-submit" id="btn-login">
+            <span class="btn-text">Sign In →</span>
+            <span class="btn-loader" style="display: none">Signing in...</span>
+          </button>
+        </form>
+        <div class="form-footer">
+          Don't have an account?
+          <a href="#" onclick="switchTabByName('register')">Create one free</a>
+        </div>
+      </div>
+
+      <!-- ── Register Panel ── -->
+      <div class="form-panel" id="panel-register">
+        <form id="register-form" onsubmit="handleRegister(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="reg-fname">First Name</label>
+              <input
+                class="form-input"
+                type="text"
+                id="reg-fname"
+                name="first_name"
+                placeholder="Ali"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="reg-lname">Last Name</label>
+              <input
+                class="form-input"
+                type="text"
+                id="reg-lname"
+                name="last_name"
+                placeholder="Hassan"
+                required
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-username">Username</label>
+            <input
+              class="form-input"
+              type="text"
+              id="reg-username"
+              name="username"
+              placeholder="alihassan123"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-email">Email Address</label>
+            <input
+              class="form-input"
+              type="email"
+              id="reg-email"
+              name="email"
+              placeholder="ali@example.com"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-password">Password</label>
+            <input
+              class="form-input"
+              type="password"
+              id="reg-password"
+              name="password"
+              placeholder="At least 8 characters"
+              required
+              minlength="8"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-confirm">Confirm Password</label>
+            <input
+              class="form-input"
+              type="password"
+              id="reg-confirm"
+              name="confirm"
+              placeholder="Re-enter password"
+              required
+            />
+          </div>
+          <button type="submit" class="btn-submit" id="btn-register">
+            <span class="btn-text">Create My Account →</span>
+            <span class="btn-loader" style="display: none"
+              >Creating account...</span
+            >
+          </button>
+        </form>
+        <div class="form-footer">
+          Already registered?
+          <a href="#" onclick="switchTabByName('login')">Sign in here</a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ── Tab Switching ──
+      function switchTab(name, btn) {
+        document
+          .querySelectorAll(".auth-tab")
+          .forEach((t) => t.classList.remove("active"));
+        document
+          .querySelectorAll(".form-panel")
+          .forEach((p) => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById("panel-" + name).classList.add("active");
+        hideToast();
+      }
+      function switchTabByName(name) {
+        const idx = name === "login" ? 0 : 1;
+        const tabs = document.querySelectorAll(".auth-tab");
+        switchTab(name, tabs[idx]);
+      }
+
+      // ── Toast Helpers ──
+      function showToast(msg, type) {
+        const toast = document.getElementById("auth-toast");
+        toast.textContent = msg;
+        toast.className = "auth-toast " + type + " visible";
+      }
+      function hideToast() {
+        const toast = document.getElementById("auth-toast");
+        toast.className = "auth-toast";
+      }
+
+      // ── Set button loading state ──
+      function setLoading(btnId, loading) {
+        const btn = document.getElementById(btnId);
+        const text = btn.querySelector(".btn-text");
+        const loader = btn.querySelector(".btn-loader");
+        btn.disabled = loading;
+        text.style.display = loading ? "none" : "inline";
+        loader.style.display = loading ? "inline" : "none";
+        btn.style.opacity = loading ? "0.7" : "1";
+      }
+
+      // ══════════════════════════════════════════
+      //  LOGIN — fetch + FormData (AJAX)
+      // ══════════════════════════════════════════
+      async function handleLogin(e) {
+        e.preventDefault();
+        hideToast();
+        setLoading("btn-login", true);
+
+        const form = document.getElementById("login-form");
+        const formData = new FormData(form);
+
+        try {
+          const response = await fetch("../api/login.php", {
+            method: "POST",
+            body: formData,
+          });
+
+          const raw = await response.text();
+          let data;
+          try {
+            data = JSON.parse(raw);
+          } catch (_) {
+            throw new Error(
+              raw || "Unexpected server response during sign in.",
+            );
+          }
+
+          if (data.success) {
+            showToast(data.message, "success");
+            // Redirect to dashboard after brief delay
+            setTimeout(() => {
+              window.location.href = "dashboard.html";
+            }, 800);
+          } else {
+            showToast(data.message, "error");
+            setLoading("btn-login", false);
+          }
+        } catch (err) {
+          const message =
+            err && err.message
+              ? err.message
+              : "Network error. Please check your connection.";
+          showToast(message, "error");
+          setLoading("btn-login", false);
+        }
+      }
+
+      // ══════════════════════════════════════════
+      //  REGISTER — fetch + FormData (AJAX)
+      // ══════════════════════════════════════════
+      async function handleRegister(e) {
+        e.preventDefault();
+        hideToast();
+
+        // Client-side password match check
+        const pass = document.getElementById("reg-password").value;
+        const conf = document.getElementById("reg-confirm").value;
+        if (pass !== conf) {
+          showToast("Passwords do not match.", "error");
+          return;
+        }
+
+        setLoading("btn-register", true);
+
+        const form = document.getElementById("register-form");
+        const formData = new FormData(form);
+
+        try {
+          const response = await fetch("../api/register.php", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            showToast(data.message, "success");
+            // Redirect to dashboard after brief delay
+            setTimeout(() => {
+              window.location.href = "dashboard.html";
+            }, 800);
+          } else {
+            showToast(data.message, "error");
+            setLoading("btn-register", false);
+          }
+        } catch (err) {
+          showToast("Network error. Please check your connection.", "error");
+          setLoading("btn-register", false);
+        }
+      }
+
+      // ── If already logged in, redirect to dashboard ──
+      (async function checkExistingSession() {
+        try {
+          const res = await fetch("../api/check_auth.php");
+          const data = await res.json();
+          if (data.authenticated) {
+            window.location.href = "dashboard.html";
+          }
+        } catch (e) {
+          /* ignore — user is not logged in */
+        }
+      })();
+    </script>
+  </body>
+</html>
+
+
+==================================================
+File: html_pages\dashboard.html
+==================================================
+
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NexTalk — Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- ── Auth Guard Loading Screen (shown until session verified) ── -->
+    <div id="auth-guard" class="auth-guard">
+      <div class="guard-content">
+        <div class="guard-logo">Nex<span>Talk</span></div>
+        <div class="guard-spinner"></div>
+        <p>Verifying your session...</p>
+      </div>
+    </div>
+
+    <div class="app-shell" id="app-shell" style="display: none">
+      <!-- ══════════════ LEFT SIDEBAR ══════════════ -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-logo">Nex<span>Talk</span></div>
+          <button
+            class="icon-btn"
+            style="
+              border-color: rgba(255, 255, 255, 0.1);
+              background: rgba(255, 255, 255, 0.06);
+              color: #cbd5e1;
+            "
+            title="New Chat"
+          >
+            ✏️
+          </button>
+        </div>
+
+        <div class="sidebar-search">
+          <input
+            class="search-input"
+            type="text"
+            placeholder="🔍  Search rooms or people..."
+          />
+        </div>
+
+        <!-- Rooms -->
+        <div class="sidebar-section">Rooms</div>
+        <div class="room-list">
+          <div class="room-item active">
+            <div class="room-avatar">💻</div>
+            <div class="room-info">
+              <div class="room-name"># general</div>
+              <div class="room-preview">Ali: WebSockets are amazing!</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">2m</div>
+              <div class="unread-badge">3</div>
+            </div>
+          </div>
+
+          <div class="room-item">
+            <div class="room-avatar">📚</div>
+            <div class="room-info">
+              <div class="room-name"># web-tech-se3003</div>
+              <div class="room-preview">Usman: Phase 1 done!</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">15m</div>
+            </div>
+          </div>
+
+          <div class="room-item">
+            <div class="room-avatar">🎮</div>
+            <div class="room-info">
+              <div class="room-name"># off-topic</div>
+              <div class="room-preview">Sara: Anyone up for gaming?</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">1h</div>
+              <div class="unread-badge">7</div>
+            </div>
+          </div>
+
+          <div class="room-item">
+            <div class="room-avatar">🚀</div>
+            <div class="room-info">
+              <div class="room-name"># project-ideas</div>
+              <div class="room-preview">Hassan: Great concept!</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">3h</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Direct Messages -->
+        <div class="sidebar-section">Direct Messages</div>
+        <div class="room-list">
+          <div class="room-item">
+            <div
+              class="room-avatar user-av"
+              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
+            >
+              S
+              <div class="online-dot"></div>
+            </div>
+            <div class="room-info">
+              <div class="room-name">Sara Ahmed</div>
+              <div class="room-preview">Got it, thanks!</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">5m</div>
+            </div>
+          </div>
+
+          <div class="room-item">
+            <div
+              class="room-avatar user-av"
+              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
+            >
+              U
+            </div>
+            <div class="room-info">
+              <div class="room-name">Usman Khan</div>
+              <div class="room-preview">Let's sync tomorrow</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">1h</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom user info (populated dynamically) -->
+        <div class="sidebar-user">
+          <div class="user-av-sm" id="user-avatar">?</div>
+          <div class="user-info">
+            <div class="user-name" id="user-display-name">Loading...</div>
+            <div class="user-role-badge" id="user-role-badge">Member</div>
+            <div class="user-status">● Online</div>
+          </div>
+          <button
+            class="icon-btn logout-btn"
+            id="btn-logout"
+            onclick="handleLogout()"
+            style="
+              border-color: rgba(255, 255, 255, 0.1);
+              background: rgba(231, 76, 60, 0.15);
+              color: #e74c3c;
+            "
+            title="Logout"
+          >
+            🚪
+          </button>
+        </div>
+      </aside>
+
+      <!-- ══════════════ MAIN CHAT AREA ══════════════ -->
+      <main class="chat-area">
+        <!-- Header -->
+        <div class="chat-header">
+          <div class="chat-header-info">
+            <div class="chat-room-icon">💻</div>
+            <div>
+              <div class="chat-room-name"># general</div>
+              <div class="chat-room-meta">24 members · 18 online</div>
+            </div>
+          </div>
+          <div class="chat-actions">
+            <button class="icon-btn" title="Search">🔍</button>
+            <button class="icon-btn" title="Members">👥</button>
+            <button
+              class="icon-btn"
+              id="btn-room-settings"
+              data-min-role="moderator"
+              title="Settings"
+            >
+              ⚙️
+            </button>
+          </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="messages-area">
+          <!-- System message / date divider -->
+          <div
+            style="
+              text-align: center;
+              color: var(--muted);
+              font-size: 0.78rem;
+              display: flex;
+              align-items: center;
+              gap: 12px;
+            "
+          >
+            <div style="flex: 1; height: 1px; background: var(--border)"></div>
+            Today
+            <div style="flex: 1; height: 1px; background: var(--border)"></div>
+          </div>
+
+          <!-- Message from Sara -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
+            >
+              S
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Sara Ahmed</div>
+              <div class="msg-bubble">
+                Hey everyone! Has anyone started on the Phase 1 submission yet?
+              </div>
+              <div class="msg-time">10:14 AM</div>
+            </div>
+          </div>
+
+          <!-- Message from Usman -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
+            >
+              U
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Usman Khan</div>
+              <div class="msg-bubble">
+                Yes! I finished the problem statement and actors section.
+                Working on the HTML pages now.
+              </div>
+              <div class="msg-time">10:16 AM</div>
+            </div>
+          </div>
+
+          <!-- Message from Hassan -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #f59e0b, #d97706)"
+            >
+              H
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Hassan Raza</div>
+              <div class="msg-bubble">
+                Our project is a real-time chat app using WebSockets 😄 quite
+                fitting that we're discussing it on a chat app!
+              </div>
+              <div class="msg-time">10:18 AM</div>
+            </div>
+          </div>
+
+          <!-- Message from Sara -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
+            >
+              S
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Sara Ahmed</div>
+              <div class="msg-bubble">
+                Haha very meta 😂 I love it. NexTalk is a great name for the
+                project btw.
+              </div>
+              <div class="msg-time">10:19 AM</div>
+            </div>
+          </div>
+
+          <!-- Own message (right aligned) -->
+          <div class="msg-group own">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #1e3a5f, #2e75b6)"
+              id="msg-own-avatar-1"
+            >
+              A
+            </div>
+            <div class="msg-body">
+              <div class="msg-bubble">
+                Just finished the dashboard HTML page. It looks really clean —
+                three panel layout with sidebar, chat window and member list.
+                Sharing the file shortly.
+              </div>
+              <div class="msg-time">10:22 AM · ✓✓</div>
+            </div>
+          </div>
+
+          <!-- Another own message -->
+          <div class="msg-group own">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #1e3a5f, #2e75b6)"
+              id="msg-own-avatar-2"
+            >
+              A
+            </div>
+            <div class="msg-body">
+              <div class="msg-bubble">
+                WebSockets are genuinely awesome. The difference vs regular HTTP
+                polling is night and day.
+              </div>
+              <div class="msg-time">10:23 AM · ✓✓</div>
+            </div>
+          </div>
+
+          <!-- Message from Usman -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
+            >
+              U
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Usman Khan</div>
+              <div class="msg-bubble">
+                Agreed! Can't wait to implement the actual ws server in Phase 2.
+                Let's finalize the doc today and submit.
+              </div>
+              <div class="msg-time">10:25 AM</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Typing indicator -->
+        <div class="typing-indicator">
+          <div class="typing-dots"><span></span><span></span><span></span></div>
+          Sara is typing...
+        </div>
+
+        <!-- Input -->
+        <div class="chat-input-area">
+          <button class="icon-btn" title="Attach file">📎</button>
+          <input
+            class="chat-input"
+            type="text"
+            placeholder="Message #general..."
+          />
+          <button class="icon-btn" title="Emoji">😊</button>
+          <button class="send-btn" title="Send">➤</button>
+        </div>
+      </main>
+
+      <!-- ══════════════ RIGHT PANEL ══════════════ -->
+      <aside class="right-panel">
+        <div class="panel-section">
+          <div class="panel-title">Role Controls</div>
+          <button
+            class="role-action-btn"
+            id="btn-manage-roles"
+            data-min-role="admin"
+          >
+            Manage Roles
+          </button>
+          <button
+            class="role-action-btn"
+            id="btn-moderate"
+            data-min-role="moderator"
+          >
+            Moderate Messages
+          </button>
+          <button
+            class="role-action-btn"
+            id="btn-manage-rooms"
+            data-min-role="moderator"
+            onclick="window.location.href='manage_rooms.html'"
+          >
+            💬 Manage Rooms
+          </button>
+          <div
+            class="member-role"
+            style="margin-top: 10px"
+            id="role-controls-note"
+          >
+            Role-based controls are enabled.
+          </div>
+        </div>
+
+        <div class="panel-divider"></div>
+
+        <div class="panel-section">
+          <div class="panel-title">Online — 18</div>
+
+          <div class="member-item">
+            <div
+              class="member-av"
+              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
+            >
+              S
+              <div
+                class="online-dot"
+                style="
+                  position: absolute;
+                  bottom: 0;
+                  right: 0;
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--online);
+                  border: 2px solid var(--card);
+                "
+              ></div>
+            </div>
+            <div>
+              <div class="member-name">Sara Ahmed</div>
+              <div class="member-role">Admin</div>
+            </div>
+          </div>
+
+          <div class="member-item" id="member-self">
+            <div
+              class="member-av"
+              style="
+                background: linear-gradient(135deg, #1e3a5f, #2e75b6);
+                position: relative;
+              "
+              id="member-self-avatar"
+            >
+              A
+              <div
+                class="online-dot"
+                style="
+                  position: absolute;
+                  bottom: 0;
+                  right: 0;
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--online);
+                  border: 2px solid var(--card);
+                "
+              ></div>
+            </div>
+            <div>
+              <div class="member-name" id="member-self-name">Ali Hassan</div>
+              <div class="member-role" id="member-self-role">Member · You</div>
+            </div>
+          </div>
+
+          <div class="member-item">
+            <div
+              class="member-av"
+              style="
+                background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+                position: relative;
+              "
+            >
+              U
+              <div
+                class="online-dot"
+                style="
+                  position: absolute;
+                  bottom: 0;
+                  right: 0;
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--online);
+                  border: 2px solid var(--card);
+                "
+              ></div>
+            </div>
+            <div>
+              <div class="member-name">Usman Khan</div>
+              <div class="member-role">Member</div>
+            </div>
+          </div>
+
+          <div class="member-item">
+            <div
+              class="member-av"
+              style="background: linear-gradient(135deg, #f59e0b, #d97706)"
+            >
+              H
+            </div>
+            <div>
+              <div class="member-name">Hassan Raza</div>
+              <div class="member-role">Member</div>
+            </div>
+          </div>
+
+          <div class="member-item">
+            <div
+              class="member-av"
+              style="background: linear-gradient(135deg, #10b981, #059669)"
+            >
+              Z
+            </div>
+            <div>
+              <div class="member-name">Zainab Mir</div>
+              <div class="member-role">Member</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-divider"></div>
+
+        <div class="panel-section">
+          <div class="panel-title">Offline — 6</div>
+          <div class="member-item">
+            <div class="member-av" style="background: #9ca3af">F</div>
+            <div>
+              <div class="member-name" style="color: var(--muted)">
+                Fatima Noor
+              </div>
+              <div class="member-role">Last seen 2h ago</div>
+            </div>
+          </div>
+          <div class="member-item">
+            <div class="member-av" style="background: #9ca3af">M</div>
+            <div>
+              <div class="member-name" style="color: var(--muted)">
+                Mohsin Ali
+              </div>
+              <div class="member-role">Last seen 5h ago</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      function toRoleLabel(role) {
+        const labels = {
+          admin: "Admin",
+          moderator: "Moderator",
+          member: "Member",
+        };
+        return labels[role] || "Member";
+      }
+
+      function hasMinimumRole(actualRole, requiredRole) {
+        const rank = { member: 1, moderator: 2, admin: 3 };
+        return (rank[actualRole] || 1) >= (rank[requiredRole] || 1);
+      }
+
+      function applyRoleAccess(role) {
+        const gated = document.querySelectorAll("[data-min-role]");
+
+        gated.forEach((el) => {
+          const required = (el.dataset.minRole || "member").toLowerCase();
+          const allowed = hasMinimumRole(role, required);
+
+          if (allowed) {
+            el.disabled = false;
+            el.style.opacity = "1";
+            el.style.pointerEvents = "auto";
+          } else {
+            el.disabled = true;
+            el.style.opacity = ".45";
+            el.style.pointerEvents = "none";
+          }
+        });
+
+        const note = document.getElementById("role-controls-note");
+        if (!note) return;
+
+        if (role === "admin") {
+          note.textContent =
+            "Admin access: full moderation and role management.";
+        } else if (role === "moderator") {
+          note.textContent =
+            "Moderator access: moderation and room settings enabled.";
+        } else {
+          note.textContent = "Member access: standard chat features enabled.";
+        }
+      }
+
+      // ══════════════════════════════════════════
+      //  SESSION GUARD — Block access without login
+      // ══════════════════════════════════════════
+      (async function guardPage() {
+        try {
+          const res = await fetch("../api/check_auth.php");
+          const data = await res.json();
+
+          if (!data.authenticated) {
+            // Not logged in → redirect to auth page
+            window.location.href = "auth.html";
+            return;
+          }
+
+          // ── Populate user info on the dashboard ──
+          const user = data.user;
+          const initial = user.first_name.charAt(0).toUpperCase();
+          const fullName = user.first_name + " " + user.last_name;
+          const role = (user.role || "member").toLowerCase();
+          const roleLabel = toRoleLabel(role);
+
+          // Sidebar bottom user
+          document.getElementById("user-avatar").textContent = initial;
+          document.getElementById("user-display-name").textContent = fullName;
+          document.getElementById("user-role-badge").textContent = roleLabel;
+
+          // Right panel self-member
+          document.getElementById("member-self-avatar").textContent = initial;
+          document.getElementById("member-self-name").textContent = fullName;
+          document.getElementById("member-self-role").textContent =
+            roleLabel + " · You";
+
+          // Own message avatars
+          const av1 = document.getElementById("msg-own-avatar-1");
+          const av2 = document.getElementById("msg-own-avatar-2");
+          if (av1) av1.textContent = initial;
+          if (av2) av2.textContent = initial;
+
+          // Apply role gating for controls
+          applyRoleAccess(role);
+
+          // Hide guard, show app
+          document.getElementById("auth-guard").style.display = "none";
+          document.getElementById("app-shell").style.display = "flex";
+        } catch (err) {
+          // Network error → redirect to auth
+          window.location.href = "auth.html";
+        }
+      })();
+
+      // ══════════════════════════════════════════
+      //  LOGOUT — session_destroy via AJAX
+      // ══════════════════════════════════════════
+      async function handleLogout() {
+        try {
+          const res = await fetch("../api/logout.php");
+          const data = await res.json();
+
+          if (data.success) {
+            window.location.href = "auth.html";
+          }
+        } catch (err) {
+          alert("Logout failed. Please try again.");
+        }
+      }
+
+      document
+        .getElementById("btn-manage-roles")
+        ?.addEventListener("click", function () {
+          alert("Admin control: role management panel can be connected here.");
+        });
+
+      document
+        .getElementById("btn-moderate")
+        ?.addEventListener("click", function () {
+          alert("Moderator control: moderation tools can be connected here.");
+        });
+    </script>
+  </body>
+</html>
+
+
+==================================================
+File: html_pages\index.html
+==================================================
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexTalk — Real-Time Chat Platform</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Navigation ── -->
+  <nav class="nav">
+    <div class="nav-logo">Nex<span>Talk</span></div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#about">About</a>
+      <!-- Auth-aware links (updated by JS) -->
+      <a href="auth.html" id="nav-auth-link">Sign In</a>
+      <button class="btn-nav" id="nav-cta-btn" onclick="location.href='auth.html'">Get Started Free</button>
+    </div>
+  </nav>
+
+  <!-- ── Hero ── -->
+  <section class="hero">
+    <div class="hero-badge">⚡ Powered by WebSockets — Zero Latency</div>
+    <h1>Chat in <span>Real Time</span>,<br>Without the Wait.</h1>
+    <p>NexTalk delivers instant messaging through persistent WebSocket connections. No polling. No refresh. Just seamless, live communication for teams and communities.</p>
+    <div class="hero-cta">
+      <button class="btn-primary" id="hero-primary-btn" onclick="location.href='auth.html'">Start Chatting — It's Free</button>
+      <button class="btn-outline" onclick="location.href='dashboard.html'">View Demo Dashboard →</button>
+    </div>
+  </section>
+
+  <!-- ── Stats Bar ── -->
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-num">&lt; 5ms</div>
+      <div class="stat-label">Average Message Latency</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">10K+</div>
+      <div class="stat-label">Concurrent Connections</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">100%</div>
+      <div class="stat-label">Browser Compatible</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">256-bit</div>
+      <div class="stat-label">End-to-End Encryption</div>
+    </div>
+  </div>
+
+  <!-- ── Features ── -->
+  <section class="features" id="features">
+    <div class="section-label">Why NexTalk</div>
+    <h2 class="section-title">Everything You Need in a Chat Platform</h2>
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Instant Messaging</h3>
+        <p>Persistent WebSocket connections deliver messages in real time — the moment you hit send, it arrives. No delays, no polling overhead.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>Group Chat Rooms</h3>
+        <p>Create public or private rooms for your team, class, or community. Unlimited members, organized conversations.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Private Messaging</h3>
+        <p>One-on-one direct messages with end-to-end encryption. Your private conversations stay private.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">👁️</div>
+        <h3>Online Presence</h3>
+        <p>See at a glance who is online in any room. Live presence indicators update instantly across all connected clients.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">✍️</div>
+        <h3>Typing Indicators</h3>
+        <p>"Someone is typing..." — live feedback broadcast over WebSocket so conversations feel natural and responsive.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📜</div>
+        <h3>Message History</h3>
+        <p>All messages are persisted. Scroll back through complete conversation history any time you rejoin a room.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer>
+    <p>© 2026 <span>NexTalk</span>. Built with ❤️ for Web Technology SE3003 — FAST-NUCES Fall 2026.</p>
+  </footer>
+
+  <script>
+    // ── Check if user is logged in and update navigation ──
+    (async function updateNavForAuth() {
+      try {
+        const res = await fetch('../api/check_auth.php');
+        const data = await res.json();
+
+        if (data.authenticated) {
+          const user = data.user;
+
+          // Update nav link
+          const navLink = document.getElementById('nav-auth-link');
+          navLink.textContent = 'Dashboard';
+          navLink.href = 'dashboard.html';
+
+          // Update nav CTA button → Logout
+          const navCta = document.getElementById('nav-cta-btn');
+          navCta.textContent = 'Logout';
+          navCta.style.background = 'rgba(231,76,60,.8)';
+          navCta.onclick = async function() {
+            await fetch('../api/logout.php');
+            location.reload();
+          };
+
+          // Update hero primary button
+          const heroBtn = document.getElementById('hero-primary-btn');
+          heroBtn.textContent = 'Go to Dashboard →';
+          heroBtn.onclick = function() { location.href = 'dashboard.html'; };
+        }
+      } catch (e) { /* Not logged in — keep default links */ }
+    })();
+  </script>
+
+</body>
+</html>
+
+
+
+==================================================
+File: html_pages\manage_rooms.html
+==================================================
+
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NexTalk — Manage Chat Rooms</title>
+    <meta name="description" content="Create, edit, and manage NexTalk chat rooms. Admin & Moderator control panel." />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- ── Auth Guard Loading Screen ── -->
+    <div id="auth-guard" class="auth-guard">
+      <div class="guard-content">
+        <div class="guard-logo">Nex<span>Talk</span></div>
+        <div class="guard-spinner"></div>
+        <p>Verifying your session...</p>
+      </div>
+    </div>
+
+    <!-- ══════════════ MAIN CONTENT ══════════════ -->
+    <div id="rooms-page" class="rooms-page" style="display: none">
+      <!-- ── Navigation Bar ── -->
+      <nav class="rooms-nav">
+        <div class="rooms-nav-left">
+          <div class="nav-logo">Nex<span>Talk</span></div>
+          <span class="rooms-nav-divider">|</span>
+          <span class="rooms-nav-title">Room Management</span>
+        </div>
+        <div class="rooms-nav-right">
+          <span class="rooms-nav-user" id="nav-user-info">Loading...</span>
+          <a href="dashboard.html" class="btn-back-dashboard" id="btn-back-dashboard">← Dashboard</a>
+          <button class="btn-logout-sm" id="btn-logout-nav" title="Logout">🚪</button>
+        </div>
+      </nav>
+
+      <!-- ── Toast Notification ── -->
+      <div id="rooms-toast" class="auth-toast rooms-toast-fixed"></div>
+
+      <!-- ── Page Content ── -->
+      <div class="rooms-container">
+        <!-- ── Left Column: Create / Edit Form ── -->
+        <div class="rooms-form-panel">
+          <div class="rooms-card">
+            <div class="rooms-card-header">
+              <div class="rooms-card-icon" id="form-icon">➕</div>
+              <div>
+                <h2 class="rooms-card-title" id="form-title">Create New Room</h2>
+                <p class="rooms-card-subtitle" id="form-subtitle">Add a new chat room to the platform</p>
+              </div>
+            </div>
+
+            <form id="room-form" onsubmit="handleRoomSubmit(event)">
+              <!-- Hidden fields for edit mode -->
+              <input type="hidden" id="room-id" name="id" value="" />
+              <input type="hidden" id="form-mode" value="create" />
+
+              <div class="form-group">
+                <label class="form-label" for="room-name">Room Name <span class="required-star">*</span></label>
+                <input
+                  class="form-input"
+                  type="text"
+                  id="room-name"
+                  name="name"
+                  placeholder="e.g. project-ideas"
+                  maxlength="100"
+                  required
+                />
+                <div class="form-hint">Lowercase, no spaces recommended. Max 100 characters.</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="room-description">Description</label>
+                <textarea
+                  class="form-input form-textarea"
+                  id="room-description"
+                  name="description"
+                  placeholder="Brief description of the room's purpose..."
+                  maxlength="255"
+                  rows="3"
+                ></textarea>
+                <div class="form-hint"><span id="desc-count">0</span>/255 characters</div>
+              </div>
+
+              <div class="rooms-form-actions">
+                <button type="submit" class="btn-submit rooms-btn-submit" id="btn-room-submit">
+                  <span class="btn-text">Create Room →</span>
+                  <span class="btn-loader" style="display: none">Processing...</span>
+                </button>
+                <button type="button" class="btn-cancel" id="btn-cancel-edit" style="display: none" onclick="cancelEdit()">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- ── Stats Card ── -->
+          <div class="rooms-card rooms-stats-card">
+            <div class="rooms-stats-grid">
+              <div class="rooms-stat-item">
+                <div class="rooms-stat-num" id="stat-total">0</div>
+                <div class="rooms-stat-label">Total Rooms</div>
+              </div>
+              <div class="rooms-stat-item">
+                <div class="rooms-stat-num" id="stat-yours">0</div>
+                <div class="rooms-stat-label">Created by You</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Right Column: Rooms Table ── -->
+        <div class="rooms-table-panel">
+          <div class="rooms-card">
+            <div class="rooms-card-header">
+              <div class="rooms-card-icon">💬</div>
+              <div>
+                <h2 class="rooms-card-title">All Chat Rooms</h2>
+                <p class="rooms-card-subtitle">Manage existing rooms on the platform</p>
+              </div>
+              <button class="btn-refresh" onclick="loadRooms()" title="Refresh">🔄</button>
+            </div>
+
+            <!-- Search/Filter -->
+            <div class="rooms-search-bar">
+              <input
+                class="form-input rooms-search-input"
+                type="text"
+                id="rooms-search"
+                placeholder="🔍  Search rooms..."
+                oninput="filterRooms()"
+              />
+            </div>
+
+            <!-- Rooms Table -->
+            <div class="rooms-table-wrapper">
+              <table class="rooms-table" id="rooms-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Room Name</th>
+                    <th>Description</th>
+                    <th>Created By</th>
+                    <th>Created At</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="rooms-tbody">
+                  <tr>
+                    <td colspan="6" class="rooms-empty-state">
+                      <div class="rooms-empty-icon">📭</div>
+                      <div>Loading rooms...</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ DELETE CONFIRMATION MODAL ══════════════ -->
+    <div class="modal-overlay" id="delete-modal" style="display: none">
+      <div class="modal-card">
+        <div class="modal-icon">⚠️</div>
+        <h3 class="modal-title">Delete Room</h3>
+        <p class="modal-text">
+          Are you sure you want to delete "<strong id="delete-room-name"></strong>"? This action cannot be undone.
+        </p>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+          <button class="btn-danger" id="btn-confirm-delete" onclick="confirmDelete()">
+            <span class="btn-text">Delete Room</span>
+            <span class="btn-loader" style="display: none">Deleting...</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ═══════════════════════════════════════════════
+      //  GLOBAL STATE
+      // ═══════════════════════════════════════════════
+      let currentUser = null;
+      let allRooms = [];
+      let deleteTargetId = null;
+
+      // ═══════════════════════════════════════════════
+      //  TOAST HELPERS (reusing .auth-toast CSS)
+      // ═══════════════════════════════════════════════
+      function showToast(msg, type) {
+        const toast = document.getElementById("rooms-toast");
+        toast.textContent = msg;
+        toast.className = "auth-toast rooms-toast-fixed " + type + " visible";
+        // Auto-hide after 4 seconds
+        clearTimeout(window._toastTimer);
+        window._toastTimer = setTimeout(() => hideToast(), 4000);
+      }
+      function hideToast() {
+        const toast = document.getElementById("rooms-toast");
+        toast.className = "auth-toast rooms-toast-fixed";
+      }
+
+      // ═══════════════════════════════════════════════
+      //  BUTTON LOADING STATE
+      // ═══════════════════════════════════════════════
+      function setLoading(btnId, loading) {
+        const btn = document.getElementById(btnId);
+        const text = btn.querySelector(".btn-text");
+        const loader = btn.querySelector(".btn-loader");
+        btn.disabled = loading;
+        text.style.display = loading ? "none" : "inline";
+        loader.style.display = loading ? "inline" : "none";
+        btn.style.opacity = loading ? "0.7" : "1";
+      }
+
+      // ═══════════════════════════════════════════════
+      //  ROLE HELPERS (mirror from dashboard)
+      // ═══════════════════════════════════════════════
+      function hasMinimumRole(actual, required) {
+        const rank = { member: 1, moderator: 2, admin: 3 };
+        return (rank[actual] || 1) >= (rank[required] || 1);
+      }
+
+      // ═══════════════════════════════════════════════
+      //  SESSION GUARD
+      // ═══════════════════════════════════════════════
+      (async function guardPage() {
+        try {
+          const res = await fetch("../api/check_auth.php");
+          const data = await res.json();
+
+          if (!data.authenticated) {
+            window.location.href = "auth.html";
+            return;
+          }
+
+          currentUser = data.user;
+          const role = (currentUser.role || "member").toLowerCase();
+
+          // ── Require at least moderator to access this page ──
+          if (!hasMinimumRole(role, "moderator")) {
+            window.location.href = "dashboard.html";
+            return;
+          }
+
+          // Populate nav user info
+          document.getElementById("nav-user-info").textContent =
+            currentUser.first_name + " " + currentUser.last_name + " (" + currentUser.role.toUpperCase() + ")";
+
+          // Hide guard, show page
+          document.getElementById("auth-guard").style.display = "none";
+          document.getElementById("rooms-page").style.display = "block";
+
+          // Load rooms
+          loadRooms();
+        } catch (err) {
+          window.location.href = "auth.html";
+        }
+      })();
+
+      // ═══════════════════════════════════════════════
+      //  LOGOUT
+      // ═══════════════════════════════════════════════
+      document.getElementById("btn-logout-nav").addEventListener("click", async () => {
+        try {
+          const res = await fetch("../api/logout.php");
+          const data = await res.json();
+          if (data.success) window.location.href = "auth.html";
+        } catch (err) {
+          alert("Logout failed.");
+        }
+      });
+
+      // ═══════════════════════════════════════════════
+      //  CHARACTER COUNTER
+      // ═══════════════════════════════════════════════
+      document.getElementById("room-description").addEventListener("input", function () {
+        document.getElementById("desc-count").textContent = this.value.length;
+      });
+
+      // ═══════════════════════════════════════════════
+      //  LOAD ROOMS (READ)
+      // ═══════════════════════════════════════════════
+      async function loadRooms() {
+        try {
+          const res = await fetch("../api/get_rooms.php");
+          const data = await res.json();
+
+          if (!data.success) {
+            showToast(data.message || "Failed to load rooms.", "error");
+            return;
+          }
+
+          allRooms = data.rooms || [];
+          renderRooms(allRooms);
+          updateStats();
+        } catch (err) {
+          showToast("Network error while loading rooms.", "error");
+        }
+      }
+
+      function renderRooms(rooms) {
+        const tbody = document.getElementById("rooms-tbody");
+        const role = (currentUser?.role || "member").toLowerCase();
+
+        if (rooms.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" class="rooms-empty-state">
+                <div class="rooms-empty-icon">📭</div>
+                <div>No rooms found. Create one to get started!</div>
+              </td>
+            </tr>`;
+          return;
+        }
+
+        tbody.innerHTML = rooms
+          .map(
+            (room, index) => `
+          <tr class="room-row" data-room-id="${room.id}">
+            <td class="room-row-id">${index + 1}</td>
+            <td>
+              <div class="room-row-name"># ${escapeHtml(room.name)}</div>
+            </td>
+            <td>
+              <div class="room-row-desc">${escapeHtml(room.description || "—")}</div>
+            </td>
+            <td>
+              <span class="room-creator-badge">@${escapeHtml(room.creator_username || "unknown")}</span>
+            </td>
+            <td class="room-row-date">${formatDate(room.created_at)}</td>
+            <td class="room-row-actions">
+              ${
+                hasMinimumRole(role, "moderator")
+                  ? `<button class="btn-action btn-edit" onclick="startEdit(${room.id})" title="Edit Room">✏️</button>`
+                  : ""
+              }
+              ${
+                hasMinimumRole(role, "admin")
+                  ? `<button class="btn-action btn-delete" onclick="openDeleteModal(${room.id}, '${escapeHtml(room.name)}')" title="Delete Room">🗑️</button>`
+                  : ""
+              }
+            </td>
+          </tr>`
+          )
+          .join("");
+      }
+
+      function updateStats() {
+        document.getElementById("stat-total").textContent = allRooms.length;
+        const yourCount = allRooms.filter(
+          (r) => r.created_by == currentUser.id
+        ).length;
+        document.getElementById("stat-yours").textContent = yourCount;
+      }
+
+      // ═══════════════════════════════════════════════
+      //  SEARCH / FILTER
+      // ═══════════════════════════════════════════════
+      function filterRooms() {
+        const query = document
+          .getElementById("rooms-search")
+          .value.toLowerCase()
+          .trim();
+        if (!query) {
+          renderRooms(allRooms);
+          return;
+        }
+        const filtered = allRooms.filter(
+          (r) =>
+            r.name.toLowerCase().includes(query) ||
+            (r.description || "").toLowerCase().includes(query) ||
+            (r.creator_username || "").toLowerCase().includes(query)
+        );
+        renderRooms(filtered);
+      }
+
+      // ═══════════════════════════════════════════════
+      //  CREATE / UPDATE (SUBMIT HANDLER)
+      // ═══════════════════════════════════════════════
+      async function handleRoomSubmit(e) {
+        e.preventDefault();
+        hideToast();
+
+        const mode = document.getElementById("form-mode").value;
+        const isEdit = mode === "edit";
+        const endpoint = isEdit ? "../api/update_room.php" : "../api/create_room.php";
+        const btnId = "btn-room-submit";
+
+        setLoading(btnId, true);
+
+        const form = document.getElementById("room-form");
+        const formData = new FormData(form);
+
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            body: formData,
+          });
+
+          const raw = await res.text();
+          let data;
+          try {
+            data = JSON.parse(raw);
+          } catch (_) {
+            throw new Error(raw || "Unexpected server response.");
+          }
+
+          if (data.success) {
+            showToast(data.message, "success");
+            form.reset();
+            document.getElementById("desc-count").textContent = "0";
+            if (isEdit) cancelEdit();
+            loadRooms();
+          } else {
+            showToast(data.message, "error");
+          }
+        } catch (err) {
+          showToast(
+            err.message || "Network error. Please try again.",
+            "error"
+          );
+        } finally {
+          setLoading(btnId, false);
+        }
+      }
+
+      // ═══════════════════════════════════════════════
+      //  EDIT MODE
+      // ═══════════════════════════════════════════════
+      function startEdit(roomId) {
+        const room = allRooms.find((r) => r.id == roomId);
+        if (!room) return;
+
+        // Populate form
+        document.getElementById("room-id").value = room.id;
+        document.getElementById("room-name").value = room.name;
+        document.getElementById("room-description").value = room.description || "";
+        document.getElementById("desc-count").textContent = (room.description || "").length;
+
+        // Switch to edit mode visuals
+        document.getElementById("form-mode").value = "edit";
+        document.getElementById("form-title").textContent = "Edit Room";
+        document.getElementById("form-subtitle").textContent = 'Editing "# ' + room.name + '"';
+        document.getElementById("form-icon").textContent = "✏️";
+        document.getElementById("btn-room-submit").querySelector(".btn-text").textContent = "Update Room →";
+        document.getElementById("btn-cancel-edit").style.display = "inline-flex";
+
+        // Highlight the row
+        document.querySelectorAll(".room-row").forEach((r) => r.classList.remove("editing"));
+        const row = document.querySelector(`.room-row[data-room-id="${roomId}"]`);
+        if (row) {
+          row.classList.add("editing");
+          row.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+
+        // Scroll form into view
+        document.getElementById("room-name").focus();
+      }
+
+      function cancelEdit() {
+        const form = document.getElementById("room-form");
+        form.reset();
+        document.getElementById("room-id").value = "";
+        document.getElementById("desc-count").textContent = "0";
+
+        // Reset form visuals
+        document.getElementById("form-mode").value = "create";
+        document.getElementById("form-title").textContent = "Create New Room";
+        document.getElementById("form-subtitle").textContent = "Add a new chat room to the platform";
+        document.getElementById("form-icon").textContent = "➕";
+        document.getElementById("btn-room-submit").querySelector(".btn-text").textContent = "Create Room →";
+        document.getElementById("btn-cancel-edit").style.display = "none";
+
+        // Remove row highlight
+        document.querySelectorAll(".room-row").forEach((r) => r.classList.remove("editing"));
+      }
+
+      // ═══════════════════════════════════════════════
+      //  DELETE MODAL
+      // ═══════════════════════════════════════════════
+      function openDeleteModal(roomId, roomName) {
+        deleteTargetId = roomId;
+        document.getElementById("delete-room-name").textContent = roomName;
+        document.getElementById("delete-modal").style.display = "flex";
+      }
+
+      function closeDeleteModal() {
+        deleteTargetId = null;
+        document.getElementById("delete-modal").style.display = "none";
+      }
+
+      async function confirmDelete() {
+        if (!deleteTargetId) return;
+
+        setLoading("btn-confirm-delete", true);
+
+        const formData = new FormData();
+        formData.append("id", deleteTargetId);
+
+        try {
+          const res = await fetch("../api/delete_room.php", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await res.json();
+
+          if (data.success) {
+            showToast(data.message, "success");
+            closeDeleteModal();
+            // If we were editing this room, cancel edit
+            if (document.getElementById("room-id").value == deleteTargetId) {
+              cancelEdit();
+            }
+            loadRooms();
+          } else {
+            showToast(data.message, "error");
+          }
+        } catch (err) {
+          showToast("Network error while deleting.", "error");
+        } finally {
+          setLoading("btn-confirm-delete", false);
+        }
+      }
+
+      // Close modal on overlay click
+      document.getElementById("delete-modal").addEventListener("click", function (e) {
+        if (e.target === this) closeDeleteModal();
+      });
+
+      // ═══════════════════════════════════════════════
+      //  UTILITY FUNCTIONS
+      // ═══════════════════════════════════════════════
+      function escapeHtml(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      function formatDate(dateStr) {
+        if (!dateStr) return "—";
+        const d = new Date(dateStr);
+        return d.toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      }
+    </script>
+  </body>
+</html>
+
+
+==================================================
+File: html_pages\style.css
+==================================================
+
+
+/* =============================================
+   NexTalk — Shared Stylesheet
+   Web Technology SE3003 | Fall 2026
+   ============================================= */
+
+/* --- Reset & Base --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --navy: #1e3a5f;
+  --blue: #2e75b6;
+  --blue-lt: #4a90d9;
+  --bg: #f0f4f9;
+  --sidebar-bg: #1b2b3a;
+  --card: #ffffff;
+  --border: #d0dff0;
+  --text: #1a1a2e;
+  --muted: #6b7a99;
+  --online: #22c55e;
+  --danger: #e74c3c;
+  --shadow: 0 4px 20px rgba(30, 58, 95, 0.1);
+  --radius: 12px;
+  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+a {
+  color: var(--blue);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+img {
+  display: block;
+  max-width: 100%;
+}
+button {
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+/* --- Utility --- */
+.flex {
+  display: flex;
+}
+.flex-col {
+  flex-direction: column;
+}
+.items-center {
+  align-items: center;
+}
+.justify-between {
+  justify-content: space-between;
+}
+.gap-8 {
+  gap: 8px;
+}
+.gap-16 {
+  gap: 16px;
+}
+.text-center {
+  text-align: center;
+}
+.fw-bold {
+  font-weight: 700;
+}
+.muted {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* =============================================
+   LANDING PAGE (index.html)
+   ============================================= */
+
+/* Navbar */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--navy);
+  padding: 0 5%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+.nav-logo {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+.nav-logo span {
+  color: #60b4ff;
+}
+.nav-links {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+}
+.nav-links a {
+  color: #cbd5e1;
+  font-size: 0.95rem;
+  transition: color 0.2s;
+}
+.nav-links a:hover {
+  color: #fff;
+  text-decoration: none;
+}
+.btn-nav {
+  background: var(--blue-lt);
+  color: #fff;
+  padding: 8px 22px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+.btn-nav:hover {
+  background: #3b82c4;
+}
+
+/* Hero */
+.hero {
+  min-height: 88vh;
+  background: linear-gradient(
+    135deg,
+    var(--navy) 0%,
+    #0d2240 55%,
+    #163356 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 5%;
+  flex-direction: column;
+}
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(46, 117, 182, 0.25);
+  border: 1px solid rgba(46, 117, 182, 0.5);
+  color: #90c8ff;
+  padding: 6px 18px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 28px;
+}
+.hero-badge::before {
+  content: "●";
+  color: var(--online);
+  font-size: 0.65rem;
+}
+.hero h1 {
+  font-size: clamp(2.4rem, 6vw, 4.2rem);
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.15;
+  margin-bottom: 20px;
+  letter-spacing: -1px;
+}
+.hero h1 span {
+  color: #60b4ff;
+}
+.hero p {
+  font-size: 1.15rem;
+  color: #94a3b8;
+  max-width: 580px;
+  margin: 0 auto 40px;
+}
+.hero-cta {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.btn-primary {
+  background: var(--blue);
+  color: #fff;
+  padding: 14px 36px;
+  border-radius: 10px;
+  border: none;
+  font-size: 1rem;
+  font-weight: 700;
+  box-shadow: 0 4px 20px rgba(46, 117, 182, 0.45);
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(46, 117, 182, 0.55);
+}
+.btn-outline {
+  background: transparent;
+  color: #cbd5e1;
+  padding: 14px 32px;
+  border-radius: 10px;
+  border: 1.5px solid #334d6e;
+  font-size: 1rem;
+  font-weight: 600;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+.btn-outline:hover {
+  border-color: #60b4ff;
+  color: #fff;
+}
+
+/* Features */
+.features {
+  padding: 90px 5%;
+}
+.section-label {
+  text-align: center;
+  color: var(--blue);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.section-title {
+  text-align: center;
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  font-weight: 800;
+  color: var(--navy);
+  margin-bottom: 56px;
+}
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 28px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.feature-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 28px;
+  box-shadow: var(--shadow);
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(30, 58, 95, 0.15);
+}
+.feature-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--blue), var(--blue-lt));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  margin-bottom: 18px;
+}
+.feature-card h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 8px;
+}
+.feature-card p {
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* Stats bar */
+.stats-bar {
+  background: var(--navy);
+  padding: 56px 5%;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 48px;
+}
+.stat {
+  text-align: center;
+}
+.stat-num {
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: #60b4ff;
+  line-height: 1;
+}
+.stat-label {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  margin-top: 6px;
+}
+
+/* Footer */
+footer {
+  background: #0d1f33;
+  color: #64748b;
+  text-align: center;
+  padding: 28px 5%;
+  font-size: 0.88rem;
+}
+footer span {
+  color: #60b4ff;
+}
+
+/* =============================================
+   AUTH PAGE (auth.html)
+   ============================================= */
+.auth-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--navy) 0%, #0d2240 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+}
+.auth-card {
+  background: #fff;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 460px;
+  padding: 44px 40px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+}
+.auth-logo {
+  text-align: center;
+  margin-bottom: 8px;
+}
+.auth-logo .logo-text {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--navy);
+}
+.auth-logo .logo-text span {
+  color: var(--blue);
+}
+.auth-subtitle {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 28px;
+}
+
+/* Tabs */
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 32px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1.5px solid var(--border);
+}
+.auth-tab {
+  flex: 1;
+  padding: 11px;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #f8fafd;
+  color: var(--muted);
+  border: none;
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+.auth-tab.active {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* Form elements */
+.form-group {
+  margin-bottom: 20px;
+}
+.form-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--navy);
+  margin-bottom: 7px;
+}
+.form-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 9px;
+  font-size: 0.95rem;
+  font-family: var(--font);
+  color: var(--text);
+  background: #f8fafd;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+  outline: none;
+}
+.form-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(46, 117, 182, 0.12);
+  background: #fff;
+}
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.btn-submit {
+  width: 100%;
+  padding: 13px;
+  background: linear-gradient(135deg, var(--navy), var(--blue));
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-top: 8px;
+  transition:
+    opacity 0.2s,
+    transform 0.15s;
+  box-shadow: 0 4px 18px rgba(30, 58, 95, 0.3);
+}
+.btn-submit:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+.form-footer {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.form-footer a {
+  color: var(--blue);
+  font-weight: 600;
+}
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.divider span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.checkbox-row input {
+  accent-color: var(--blue);
+  width: 16px;
+  height: 16px;
+}
+.checkbox-row label {
+  font-size: 0.87rem;
+  color: var(--muted);
+}
+.form-panel {
+  display: none;
+}
+.form-panel.active {
+  display: block;
+}
+
+/* =============================================
+   DASHBOARD PAGE (dashboard.html)
+   ============================================= */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--sidebar-bg);
+}
+
+/* Sidebar */
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  background: #1b2b3a;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+}
+.sidebar-header {
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.sidebar-logo {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #fff;
+}
+.sidebar-logo span {
+  color: #60b4ff;
+}
+.sidebar-search {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #cbd5e1;
+  font-size: 0.875rem;
+  outline: none;
+  font-family: var(--font);
+}
+.search-input::placeholder {
+  color: #64748b;
+}
+.search-input:focus {
+  border-color: rgba(46, 117, 182, 0.6);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-section {
+  padding: 14px 16px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: #4a6178;
+}
+.room-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 10px;
+}
+.room-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-radius: 8px;
+  margin: 2px 8px;
+  transition: background 0.15s;
+}
+.room-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.room-item.active {
+  background: rgba(46, 117, 182, 0.25);
+  border-left: 3px solid var(--blue);
+}
+.room-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--blue), var(--blue-lt));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+  position: relative;
+}
+.room-avatar.user-av {
+  border-radius: 50%;
+}
+.online-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--online);
+  border: 2px solid #1b2b3a;
+}
+.room-info {
+  flex: 1;
+  min-width: 0;
+}
+.room-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.room-preview {
+  font-size: 0.78rem;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.room-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.room-time {
+  font-size: 0.72rem;
+  color: #4a6178;
+}
+.unread-badge {
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+/* User profile at sidebar bottom */
+.sidebar-user {
+  padding: 14px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.user-av-sm {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: #fff;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.user-info {
+  flex: 1;
+  min-width: 0;
+}
+.user-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+.user-role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  background: rgba(96, 180, 255, 0.16);
+  border: 1px solid rgba(96, 180, 255, 0.32);
+  color: #a7d4ff;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.user-status {
+  font-size: 0.75rem;
+  color: var(--online);
+}
+
+/* Chat Area */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+.chat-header {
+  padding: 16px 24px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.chat-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.chat-room-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--navy), var(--blue));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  color: #fff;
+}
+.chat-room-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--navy);
+}
+.chat-room-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.chat-actions {
+  display: flex;
+  gap: 10px;
+}
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  color: var(--muted);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.icon-btn:hover {
+  background: var(--bg);
+  color: var(--navy);
+}
+
+/* Messages */
+.messages-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.msg-group {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.msg-group.own {
+  flex-direction: row-reverse;
+}
+.msg-av {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: #fff;
+}
+.msg-body {
+  max-width: 65%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.msg-group.own .msg-body {
+  align-items: flex-end;
+}
+.msg-sender {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.msg-bubble {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px 16px 16px 4px;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.msg-group.own .msg-bubble {
+  background: linear-gradient(135deg, var(--navy), var(--blue));
+  color: #fff;
+  border: none;
+  border-radius: 16px 16px 4px 16px;
+}
+.msg-time {
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+/* Typing indicator */
+.typing-indicator {
+  padding: 0 24px 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.typing-dots span {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  margin: 0 1px;
+  animation: bounce 0.9s infinite ease-in-out;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Input area */
+.chat-input-area {
+  padding: 16px 24px;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.chat-input {
+  flex: 1;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-size: 0.95rem;
+  font-family: var(--font);
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color 0.2s;
+}
+.chat-input:focus {
+  border-color: var(--blue);
+  background: #fff;
+}
+.send-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: var(--blue);
+  border: none;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(46, 117, 182, 0.4);
+  transition:
+    background 0.2s,
+    transform 0.15s;
+}
+.send-btn:hover {
+  background: var(--navy);
+  transform: scale(1.05);
+}
+
+/* Right Panel */
+.right-panel {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.panel-section {
+  padding: 18px 16px;
+}
+.panel-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+}
+.member-av {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  position: relative;
+}
+.member-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.member-role {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.role-action-btn {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--navy);
+  border-radius: 8px;
+  padding: 9px 10px;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    transform 0.12s;
+}
+.role-action-btn:hover {
+  background: #e7eff8;
+  border-color: #b9cde5;
+  transform: translateY(-1px);
+}
+.role-action-btn:disabled {
+  cursor: not-allowed;
+}
+.panel-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0 16px;
+}
+
+/* =============================================
+   AUTH TOAST NOTIFICATIONS
+   ============================================= */
+.auth-toast {
+  padding: 0;
+  max-height: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: center;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-bottom: 0;
+}
+.auth-toast.visible {
+  padding: 12px 16px;
+  max-height: 80px;
+  margin-bottom: 20px;
+}
+.auth-toast.error {
+  background: rgba(231, 76, 60, 0.1);
+  border: 1.5px solid rgba(231, 76, 60, 0.35);
+  color: #c0392b;
+}
+.auth-toast.success {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1.5px solid rgba(34, 197, 94, 0.35);
+  color: #16a34a;
+}
+
+/* =============================================
+   AUTH GUARD — Full-page loading screen
+   ============================================= */
+.auth-guard {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: linear-gradient(135deg, var(--navy) 0%, #0d2240 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.guard-content {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.95rem;
+}
+.guard-logo {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 28px;
+  letter-spacing: -0.5px;
+}
+.guard-logo span {
+  color: #60b4ff;
+}
+
+.guard-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3.5px solid rgba(255, 255, 255, 0.12);
+  border-top-color: #60b4ff;
+  border-radius: 50%;
+  margin: 0 auto 18px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* =============================================
+   LOGOUT BUTTON (sidebar)
+   ============================================= */
+.logout-btn {
+  transition:
+    background 0.2s,
+    transform 0.15s !important;
+}
+.logout-btn:hover {
+  background: rgba(231, 76, 60, 0.3) !important;
+  transform: scale(1.08);
+}
+
+/* =============================================
+   MANAGE ROOMS PAGE (manage_rooms.html)
+   ============================================= */
+
+/* Page wrapper */
+.rooms-page {
+  min-height: 100vh;
+  background: linear-gradient(160deg, #0d1f33 0%, #1b2b3a 40%, #0d2240 100%);
+}
+
+/* Navigation bar */
+.rooms-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(27, 43, 58, 0.95);
+  backdrop-filter: blur(12px);
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
+}
+.rooms-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.rooms-nav-divider {
+  color: rgba(255, 255, 255, 0.15);
+  font-size: 1.4rem;
+  font-weight: 300;
+}
+.rooms-nav-title {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.rooms-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.rooms-nav-user {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.btn-back-dashboard {
+  background: rgba(46, 117, 182, 0.15);
+  border: 1px solid rgba(46, 117, 182, 0.35);
+  color: #90c8ff;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.btn-back-dashboard:hover {
+  background: rgba(46, 117, 182, 0.3);
+  color: #fff;
+  text-decoration: none;
+}
+.btn-logout-sm {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  background: rgba(231, 76, 60, 0.1);
+  color: #e74c3c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-logout-sm:hover {
+  background: rgba(231, 76, 60, 0.25);
+  transform: scale(1.05);
+}
+
+/* Fixed toast for rooms page */
+.rooms-toast-fixed {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  min-width: 320px;
+  max-width: 500px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+/* Container layout */
+.rooms-container {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 24px;
+  padding: 28px;
+  max-width: 1400px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+/* Cards */
+.rooms-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 28px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+.rooms-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.rooms-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--blue), var(--blue-lt));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+.rooms-card-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  letter-spacing: -0.3px;
+}
+.rooms-card-subtitle {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+/* Form overrides for dark theme */
+.rooms-page .form-label {
+  color: #94a3b8;
+}
+.rooms-page .form-input {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+.rooms-page .form-input::placeholder {
+  color: #4a6178;
+}
+.rooms-page .form-input:focus {
+  border-color: rgba(46, 117, 182, 0.6);
+  box-shadow: 0 0 0 3px rgba(46, 117, 182, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+}
+.form-textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: var(--font);
+}
+.form-hint {
+  font-size: 0.72rem;
+  color: #4a6178;
+  margin-top: 6px;
+}
+.required-star {
+  color: #e74c3c;
+}
+
+/* Form actions */
+.rooms-form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+.rooms-btn-submit {
+  flex: 1;
+}
+.btn-cancel {
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+
+/* Stats card */
+.rooms-stats-card {
+  margin-top: 20px;
+  padding: 22px 28px;
+}
+.rooms-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.rooms-stat-item {
+  text-align: center;
+  padding: 12px;
+  background: rgba(46, 117, 182, 0.1);
+  border: 1px solid rgba(46, 117, 182, 0.2);
+  border-radius: 12px;
+}
+.rooms-stat-num {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #60b4ff;
+  line-height: 1;
+}
+.rooms-stat-label {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Refresh button */
+.btn-refresh {
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-refresh:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: rotate(180deg);
+}
+
+/* Search bar */
+.rooms-search-bar {
+  margin-bottom: 18px;
+}
+.rooms-search-input {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #e2e8f0 !important;
+}
+.rooms-search-input::placeholder {
+  color: #4a6178 !important;
+}
+
+/* Table */
+.rooms-table-wrapper {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.rooms-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.rooms-table thead {
+  background: rgba(46, 117, 182, 0.15);
+}
+.rooms-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #60b4ff;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+.rooms-table td {
+  padding: 14px 16px;
+  color: #cbd5e1;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+.rooms-table tbody tr {
+  transition: background 0.15s;
+}
+.rooms-table tbody tr:hover {
+  background: rgba(46, 117, 182, 0.08);
+}
+.rooms-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Room row styles */
+.room-row-id {
+  color: #4a6178;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+.room-row-name {
+  font-weight: 700;
+  color: #e2e8f0;
+  font-size: 0.92rem;
+}
+.room-row-desc {
+  color: #64748b;
+  font-size: 0.82rem;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-creator-badge {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(96, 180, 255, 0.12);
+  border: 1px solid rgba(96, 180, 255, 0.25);
+  color: #a7d4ff;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.room-row-date {
+  color: #4a6178;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.room-row-actions {
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* Editing highlight */
+.room-row.editing {
+  background: rgba(46, 117, 182, 0.15) !important;
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+
+/* Action buttons */
+.btn-action {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-action.btn-edit:hover {
+  background: rgba(46, 117, 182, 0.2);
+  border-color: rgba(46, 117, 182, 0.4);
+  transform: translateY(-1px);
+}
+.btn-action.btn-delete:hover {
+  background: rgba(231, 76, 60, 0.2);
+  border-color: rgba(231, 76, 60, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Empty state */
+.rooms-empty-state {
+  text-align: center;
+  padding: 48px 16px !important;
+  color: #4a6178;
+  font-size: 0.9rem;
+}
+.rooms-empty-icon {
+  font-size: 2.2rem;
+  margin-bottom: 10px;
+}
+
+/* =============================================
+   DELETE CONFIRMATION MODAL
+   ============================================= */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-card {
+  background: #1b2b3a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 36px 32px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  animation: modalIn 0.25s ease-out;
+}
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.modal-icon {
+  font-size: 2.8rem;
+  margin-bottom: 16px;
+}
+.modal-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 10px;
+}
+.modal-text {
+  font-size: 0.88rem;
+  color: #94a3b8;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.modal-text strong {
+  color: #60b4ff;
+}
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.btn-danger {
+  padding: 12px 28px;
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(231, 76, 60, 0.35);
+  transition: all 0.2s;
+}
+.btn-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(231, 76, 60, 0.45);
+}
+
+/* =============================================
+   RESPONSIVE — Manage Rooms
+   ============================================= */
+@media (max-width: 900px) {
+  .rooms-container {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+  .rooms-form-panel {
+    order: -1;
+  }
+  .rooms-nav {
+    padding: 0 16px;
+    flex-wrap: wrap;
+    height: auto;
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  .rooms-nav-user {
+    display: none;
+  }
+  .room-row-desc {
+    max-width: 120px;
+  }
+}
+
+@media (max-width: 600px) {
+  .rooms-card {
+    padding: 20px 16px;
+  }
+  .rooms-table th,
+  .rooms-table td {
+    padding: 10px 10px;
+    font-size: 0.8rem;
+  }
+  .rooms-nav-title {
+    display: none;
+  }
+  .rooms-nav-divider {
+    display: none;
+  }
+}
+

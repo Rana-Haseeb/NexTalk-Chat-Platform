@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NexTalk — Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- ── Auth Guard Loading Screen (shown until session verified) ── -->
+    <div id="auth-guard" class="auth-guard">
+      <div class="guard-content">
+        <div class="guard-logo">Nex<span>Talk</span></div>
+        <div class="guard-spinner"></div>
+        <p>Verifying your session...</p>
+      </div>
+    </div>
+
+    <div class="app-shell" id="app-shell" style="display: none">
+      <!-- ══════════════ LEFT SIDEBAR ══════════════ -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-logo">Nex<span>Talk</span></div>
+          <button
+            class="icon-btn"
+            style="
+              border-color: rgba(255, 255, 255, 0.1);
+              background: rgba(255, 255, 255, 0.06);
+              color: #cbd5e1;
+            "
+            title="New Chat"
+          >
+            ✏️
+          </button>
+        </div>
+
+        <div class="sidebar-search">
+          <input
+            class="search-input"
+            type="text"
+            placeholder="🔍  Search rooms or people..."
+          />
+        </div>
+
+        <!-- Rooms -->
+        <div class="sidebar-section">Rooms</div>
+        <div class="room-list">
+          <div class="room-item active">
+            <div class="room-avatar">💻</div>
+            <div class="room-info">
+              <div class="room-name"># general</div>
+              <div class="room-preview">Ali: WebSockets are amazing!</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">2m</div>
+              <div class="unread-badge">3</div>
+            </div>
+          </div>
+
+          <div class="room-item">
+            <div class="room-avatar">📚</div>
+            <div class="room-info">
+              <div class="room-name"># web-tech-se3003</div>
+              <div class="room-preview">Usman: Phase 1 done!</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">15m</div>
+            </div>
+          </div>
+
+          <div class="room-item">
+            <div class="room-avatar">🎮</div>
+            <div class="room-info">
+              <div class="room-name"># off-topic</div>
+              <div class="room-preview">Sara: Anyone up for gaming?</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">1h</div>
+              <div class="unread-badge">7</div>
+            </div>
+          </div>
+
+          <div class="room-item">
+            <div class="room-avatar">🚀</div>
+            <div class="room-info">
+              <div class="room-name"># project-ideas</div>
+              <div class="room-preview">Hassan: Great concept!</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">3h</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Direct Messages -->
+        <div class="sidebar-section">Direct Messages</div>
+        <div class="room-list">
+          <div class="room-item">
+            <div
+              class="room-avatar user-av"
+              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
+            >
+              S
+              <div class="online-dot"></div>
+            </div>
+            <div class="room-info">
+              <div class="room-name">Sara Ahmed</div>
+              <div class="room-preview">Got it, thanks!</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">5m</div>
+            </div>
+          </div>
+
+          <div class="room-item">
+            <div
+              class="room-avatar user-av"
+              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
+            >
+              U
+            </div>
+            <div class="room-info">
+              <div class="room-name">Usman Khan</div>
+              <div class="room-preview">Let's sync tomorrow</div>
+            </div>
+            <div class="room-meta">
+              <div class="room-time">1h</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom user info (populated dynamically) -->
+        <div class="sidebar-user">
+          <div class="user-av-sm" id="user-avatar">?</div>
+          <div class="user-info">
+            <div class="user-name" id="user-display-name">Loading...</div>
+            <div class="user-role-badge" id="user-role-badge">Member</div>
+            <div class="user-status">● Online</div>
+          </div>
+          <button
+            class="icon-btn logout-btn"
+            id="btn-logout"
+            onclick="handleLogout()"
+            style="
+              border-color: rgba(255, 255, 255, 0.1);
+              background: rgba(231, 76, 60, 0.15);
+              color: #e74c3c;
+            "
+            title="Logout"
+          >
+            🚪
+          </button>
+        </div>
+      </aside>
+
+      <!-- ══════════════ MAIN CHAT AREA ══════════════ -->
+      <main class="chat-area">
+        <!-- Header -->
+        <div class="chat-header">
+          <div class="chat-header-info">
+            <div class="chat-room-icon">💻</div>
+            <div>
+              <div class="chat-room-name"># general</div>
+              <div class="chat-room-meta">24 members · 18 online</div>
+            </div>
+          </div>
+          <div class="chat-actions">
+            <button class="icon-btn" title="Search">🔍</button>
+            <button class="icon-btn" title="Members">👥</button>
+            <button
+              class="icon-btn"
+              id="btn-room-settings"
+              data-min-role="moderator"
+              title="Settings"
+            >
+              ⚙️
+            </button>
+          </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="messages-area">
+          <!-- System message / date divider -->
+          <div
+            style="
+              text-align: center;
+              color: var(--muted);
+              font-size: 0.78rem;
+              display: flex;
+              align-items: center;
+              gap: 12px;
+            "
+          >
+            <div style="flex: 1; height: 1px; background: var(--border)"></div>
+            Today
+            <div style="flex: 1; height: 1px; background: var(--border)"></div>
+          </div>
+
+          <!-- Message from Sara -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
+            >
+              S
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Sara Ahmed</div>
+              <div class="msg-bubble">
+                Hey everyone! Has anyone started on the Phase 1 submission yet?
+              </div>
+              <div class="msg-time">10:14 AM</div>
+            </div>
+          </div>
+
+          <!-- Message from Usman -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
+            >
+              U
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Usman Khan</div>
+              <div class="msg-bubble">
+                Yes! I finished the problem statement and actors section.
+                Working on the HTML pages now.
+              </div>
+              <div class="msg-time">10:16 AM</div>
+            </div>
+          </div>
+
+          <!-- Message from Hassan -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #f59e0b, #d97706)"
+            >
+              H
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Hassan Raza</div>
+              <div class="msg-bubble">
+                Our project is a real-time chat app using WebSockets 😄 quite
+                fitting that we're discussing it on a chat app!
+              </div>
+              <div class="msg-time">10:18 AM</div>
+            </div>
+          </div>
+
+          <!-- Message from Sara -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
+            >
+              S
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Sara Ahmed</div>
+              <div class="msg-bubble">
+                Haha very meta 😂 I love it. NexTalk is a great name for the
+                project btw.
+              </div>
+              <div class="msg-time">10:19 AM</div>
+            </div>
+          </div>
+
+          <!-- Own message (right aligned) -->
+          <div class="msg-group own">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #1e3a5f, #2e75b6)"
+              id="msg-own-avatar-1"
+            >
+              A
+            </div>
+            <div class="msg-body">
+              <div class="msg-bubble">
+                Just finished the dashboard HTML page. It looks really clean —
+                three panel layout with sidebar, chat window and member list.
+                Sharing the file shortly.
+              </div>
+              <div class="msg-time">10:22 AM · ✓✓</div>
+            </div>
+          </div>
+
+          <!-- Another own message -->
+          <div class="msg-group own">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #1e3a5f, #2e75b6)"
+              id="msg-own-avatar-2"
+            >
+              A
+            </div>
+            <div class="msg-body">
+              <div class="msg-bubble">
+                WebSockets are genuinely awesome. The difference vs regular HTTP
+                polling is night and day.
+              </div>
+              <div class="msg-time">10:23 AM · ✓✓</div>
+            </div>
+          </div>
+
+          <!-- Message from Usman -->
+          <div class="msg-group">
+            <div
+              class="msg-av"
+              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
+            >
+              U
+            </div>
+            <div class="msg-body">
+              <div class="msg-sender">Usman Khan</div>
+              <div class="msg-bubble">
+                Agreed! Can't wait to implement the actual ws server in Phase 2.
+                Let's finalize the doc today and submit.
+              </div>
+              <div class="msg-time">10:25 AM</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Typing indicator -->
+        <div class="typing-indicator">
+          <div class="typing-dots"><span></span><span></span><span></span></div>
+          Sara is typing...
+        </div>
+
+        <!-- Input -->
+        <div class="chat-input-area">
+          <button class="icon-btn" title="Attach file">📎</button>
+          <input
+            class="chat-input"
+            type="text"
+            placeholder="Message #general..."
+          />
+          <button class="icon-btn" title="Emoji">😊</button>
+          <button class="send-btn" title="Send">➤</button>
+        </div>
+      </main>
+
+      <!-- ══════════════ RIGHT PANEL ══════════════ -->
+      <aside class="right-panel">
+        <div class="panel-section">
+          <div class="panel-title">Role Controls</div>
+          <button
+            class="role-action-btn"
+            id="btn-manage-roles"
+            data-min-role="admin"
+          >
+            Manage Roles
+          </button>
+          <button
+            class="role-action-btn"
+            id="btn-moderate"
+            data-min-role="moderator"
+          >
+            Moderate Messages
+          </button>
+          <button
+            class="role-action-btn"
+            id="btn-manage-rooms"
+            data-min-role="moderator"
+            onclick="window.location.href='manage_rooms.html'"
+          >
+            💬 Manage Rooms
+          </button>
+          <div
+            class="member-role"
+            style="margin-top: 10px"
+            id="role-controls-note"
+          >
+            Role-based controls are enabled.
+          </div>
+        </div>
+
+        <div class="panel-divider"></div>
+
+        <div class="panel-section">
+          <div class="panel-title">Online — 18</div>
+
+          <div class="member-item">
+            <div
+              class="member-av"
+              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
+            >
+              S
+              <div
+                class="online-dot"
+                style="
+                  position: absolute;
+                  bottom: 0;
+                  right: 0;
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--online);
+                  border: 2px solid var(--card);
+                "
+              ></div>
+            </div>
+            <div>
+              <div class="member-name">Sara Ahmed</div>
+              <div class="member-role">Admin</div>
+            </div>
+          </div>
+
+          <div class="member-item" id="member-self">
+            <div
+              class="member-av"
+              style="
+                background: linear-gradient(135deg, #1e3a5f, #2e75b6);
+                position: relative;
+              "
+              id="member-self-avatar"
+            >
+              A
+              <div
+                class="online-dot"
+                style="
+                  position: absolute;
+                  bottom: 0;
+                  right: 0;
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--online);
+                  border: 2px solid var(--card);
+                "
+              ></div>
+            </div>
+            <div>
+              <div class="member-name" id="member-self-name">Ali Hassan</div>
+              <div class="member-role" id="member-self-role">Member · You</div>
+            </div>
+          </div>
+
+          <div class="member-item">
+            <div
+              class="member-av"
+              style="
+                background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+                position: relative;
+              "
+            >
+              U
+              <div
+                class="online-dot"
+                style="
+                  position: absolute;
+                  bottom: 0;
+                  right: 0;
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--online);
+                  border: 2px solid var(--card);
+                "
+              ></div>
+            </div>
+            <div>
+              <div class="member-name">Usman Khan</div>
+              <div class="member-role">Member</div>
+            </div>
+          </div>
+
+          <div class="member-item">
+            <div
+              class="member-av"
+              style="background: linear-gradient(135deg, #f59e0b, #d97706)"
+            >
+              H
+            </div>
+            <div>
+              <div class="member-name">Hassan Raza</div>
+              <div class="member-role">Member</div>
+            </div>
+          </div>
+
+          <div class="member-item">
+            <div
+              class="member-av"
+              style="background: linear-gradient(135deg, #10b981, #059669)"
+            >
+              Z
+            </div>
+            <div>
+              <div class="member-name">Zainab Mir</div>
+              <div class="member-role">Member</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-divider"></div>
+
+        <div class="panel-section">
+          <div class="panel-title">Offline — 6</div>
+          <div class="member-item">
+            <div class="member-av" style="background: #9ca3af">F</div>
+            <div>
+              <div class="member-name" style="color: var(--muted)">
+                Fatima Noor
+              </div>
+              <div class="member-role">Last seen 2h ago</div>
+            </div>
+          </div>
+          <div class="member-item">
+            <div class="member-av" style="background: #9ca3af">M</div>
+            <div>
+              <div class="member-name" style="color: var(--muted)">
+                Mohsin Ali
+              </div>
+              <div class="member-role">Last seen 5h ago</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      function toRoleLabel(role) {
+        const labels = {
+          admin: "Admin",
+          moderator: "Moderator",
+          member: "Member",
+        };
+        return labels[role] || "Member";
+      }
+
+      function hasMinimumRole(actualRole, requiredRole) {
+        const rank = { member: 1, moderator: 2, admin: 3 };
+        return (rank[actualRole] || 1) >= (rank[requiredRole] || 1);
+      }
+
+      function applyRoleAccess(role) {
+        const gated = document.querySelectorAll("[data-min-role]");
+
+        gated.forEach((el) => {
+          const required = (el.dataset.minRole || "member").toLowerCase();
+          const allowed = hasMinimumRole(role, required);
+
+          if (allowed) {
+            el.disabled = false;
+            el.style.opacity = "1";
+            el.style.pointerEvents = "auto";
+          } else {
+            el.disabled = true;
+            el.style.opacity = ".45";
+            el.style.pointerEvents = "none";
+          }
+        });
+
+        const note = document.getElementById("role-controls-note");
+        if (!note) return;
+
+        if (role === "admin") {
+          note.textContent =
+            "Admin access: full moderation and role management.";
+        } else if (role === "moderator") {
+          note.textContent =
+            "Moderator access: moderation and room settings enabled.";
+        } else {
+          note.textContent = "Member access: standard chat features enabled.";
+        }
+      }
+
+      // ══════════════════════════════════════════
+      //  SESSION GUARD — Block access without login
+      // ══════════════════════════════════════════
+      (async function guardPage() {
+        try {
+          const res = await fetch("../api/check_auth.php");
+          const data = await res.json();
+
+          if (!data.authenticated) {
+            // Not logged in → redirect to auth page
+            window.location.href = "auth.html";
+            return;
+          }
+
+          // ── Populate user info on the dashboard ──
+          const user = data.user;
+          const initial = user.first_name.charAt(0).toUpperCase();
+          const fullName = user.first_name + " " + user.last_name;
+          const role = (user.role || "member").toLowerCase();
+          const roleLabel = toRoleLabel(role);
+
+          // Sidebar bottom user
+          document.getElementById("user-avatar").textContent = initial;
+          document.getElementById("user-display-name").textContent = fullName;
+          document.getElementById("user-role-badge").textContent = roleLabel;
+
+          // Right panel self-member
+          document.getElementById("member-self-avatar").textContent = initial;
+          document.getElementById("member-self-name").textContent = fullName;
+          document.getElementById("member-self-role").textContent =
+            roleLabel + " · You";
+
+          // Own message avatars
+          const av1 = document.getElementById("msg-own-avatar-1");
+          const av2 = document.getElementById("msg-own-avatar-2");
+          if (av1) av1.textContent = initial;
+          if (av2) av2.textContent = initial;
+
+          // Apply role gating for controls
+          applyRoleAccess(role);
+
+          // Hide guard, show app
+          document.getElementById("auth-guard").style.display = "none";
+          document.getElementById("app-shell").style.display = "flex";
+        } catch (err) {
+          // Network error → redirect to auth
+          window.location.href = "auth.html";
+        }
+      })();
+
+      // ══════════════════════════════════════════
+      //  LOGOUT — session_destroy via AJAX
+      // ══════════════════════════════════════════
+      async function handleLogout() {
+        try {
+          const res = await fetch("../api/logout.php");
+          const data = await res.json();
+
+          if (data.success) {
+            window.location.href = "auth.html";
+          }
+        } catch (err) {
+          alert("Logout failed. Please try again.");
+        }
+      }
+
+      document
+        .getElementById("btn-manage-roles")
+        ?.addEventListener("click", function () {
+          alert("Admin control: role management panel can be connected here.");
+        });
+
+      document
+        .getElementById("btn-moderate")
+        ?.addEventListener("click", function () {
+          alert("Moderator control: moderation tools can be connected here.");
+        });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexTalk — Real-Time Chat Platform</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Navigation ── -->
+  <nav class="nav">
+    <div class="nav-logo">Nex<span>Talk</span></div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#about">About</a>
+      <!-- Auth-aware links (updated by JS) -->
+      <a href="auth.html" id="nav-auth-link">Sign In</a>
+      <button class="btn-nav" id="nav-cta-btn" onclick="location.href='auth.html'">Get Started Free</button>
+    </div>
+  </nav>
+
+  <!-- ── Hero ── -->
+  <section class="hero">
+    <div class="hero-badge">⚡ Powered by WebSockets — Zero Latency</div>
+    <h1>Chat in <span>Real Time</span>,<br>Without the Wait.</h1>
+    <p>NexTalk delivers instant messaging through persistent WebSocket connections. No polling. No refresh. Just seamless, live communication for teams and communities.</p>
+    <div class="hero-cta">
+      <button class="btn-primary" id="hero-primary-btn" onclick="location.href='auth.html'">Start Chatting — It's Free</button>
+      <button class="btn-outline" onclick="location.href='dashboard.html'">View Demo Dashboard →</button>
+    </div>
+  </section>
+
+  <!-- ── Stats Bar ── -->
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-num">&lt; 5ms</div>
+      <div class="stat-label">Average Message Latency</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">10K+</div>
+      <div class="stat-label">Concurrent Connections</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">100%</div>
+      <div class="stat-label">Browser Compatible</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">256-bit</div>
+      <div class="stat-label">End-to-End Encryption</div>
+    </div>
+  </div>
+
+  <!-- ── Features ── -->
+  <section class="features" id="features">
+    <div class="section-label">Why NexTalk</div>
+    <h2 class="section-title">Everything You Need in a Chat Platform</h2>
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Instant Messaging</h3>
+        <p>Persistent WebSocket connections deliver messages in real time — the moment you hit send, it arrives. No delays, no polling overhead.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>Group Chat Rooms</h3>
+        <p>Create public or private rooms for your team, class, or community. Unlimited members, organized conversations.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Private Messaging</h3>
+        <p>One-on-one direct messages with end-to-end encryption. Your private conversations stay private.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">👁️</div>
+        <h3>Online Presence</h3>
+        <p>See at a glance who is online in any room. Live presence indicators update instantly across all connected clients.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">✍️</div>
+        <h3>Typing Indicators</h3>
+        <p>"Someone is typing..." — live feedback broadcast over WebSocket so conversations feel natural and responsive.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📜</div>
+        <h3>Message History</h3>
+        <p>All messages are persisted. Scroll back through complete conversation history any time you rejoin a room.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer>
+    <p>© 2026 <span>NexTalk</span>. Built with ❤️ for Web Technology SE3003 — FAST-NUCES Fall 2026.</p>
+  </footer>
+
+  <script>
+    // ── Check if user is logged in and update navigation ──
+    (async function updateNavForAuth() {
+      try {
+        const res = await fetch('../api/check_auth.php');
+        const data = await res.json();
+
+        if (data.authenticated) {
+          const user = data.user;
+
+          // Update nav link
+          const navLink = document.getElementById('nav-auth-link');
+          navLink.textContent = 'Dashboard';
+          navLink.href = 'dashboard.html';
+
+          // Update nav CTA button → Logout
+          const navCta = document.getElementById('nav-cta-btn');
+          navCta.textContent = 'Logout';
+          navCta.style.background = 'rgba(231,76,60,.8)';
+          navCta.onclick = async function() {
+            await fetch('../api/logout.php');
+            location.reload();
+          };
+
+          // Update hero primary button
+          const heroBtn = document.getElementById('hero-primary-btn');
+          heroBtn.textContent = 'Go to Dashboard →';
+          heroBtn.onclick = function() { location.href = 'dashboard.html'; };
+        }
+      } catch (e) { /* Not logged in — keep default links */ }
+    })();
+  </script>
+
+</body>
+</html>
+
