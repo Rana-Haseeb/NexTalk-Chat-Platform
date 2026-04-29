@@ -8,6 +8,15 @@ $dbname   = "nextalk_db";
 $username = "root";
 $password = "";          // default XAMPP/MAMP password
 
+
+
+//api/db.php
+// $host     = "sql210.infinityfree.com"; // <-- Your live MySQL Hostname
+// $dbname   = "if0_41762639_nextalk";    // <-- Your live Database Name
+// $username = "if0_41762639";            // <-- Your live MySQL Username
+// $password = "X5gBKMP8v6lLFd";    // <-- Put your actual InfinityFree account password here
+
+
 try {
     $pdo = new PDO(
         "mysql:host=$host;dbname=$dbname;charset=utf8mb4",

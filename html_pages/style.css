@@ -1588,3 +1588,203 @@ footer span {
     display: none;
   }
 }
+
+/* =============================================
+   ADMIN BADGE (Message Sender)
+   ============================================= */
+.msg-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(16,185,129,0.12));
+  border: 1px solid rgba(34,197,94,0.4);
+  color: #4ade80;
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  vertical-align: middle;
+  line-height: 1;
+  animation: badgePulse 2s ease-in-out infinite;
+}
+.msg-admin-badge::before {
+  content: "⚡";
+  font-size: 0.6rem;
+}
+@keyframes badgePulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.2); }
+  50%      { box-shadow: 0 0 10px rgba(34,197,94,0.4); }
+}
+
+/* =============================================
+   MEMBER COUNT — Clickable header element
+   ============================================= */
+.member-count-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: var(--blue);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color 0.2s;
+}
+.member-count-btn:hover {
+  color: var(--blue-lt);
+  text-decoration: underline;
+}
+.member-count-btn .count-icon {
+  font-size: 0.75rem;
+}
+
+/* =============================================
+   MEMBERS LIST MODAL
+   ============================================= */
+.members-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.members-modal-card {
+  background: #1b2b3a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 0;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  animation: modalIn 0.25s ease-out;
+  overflow: hidden;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.members-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.members-modal-header h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin: 0;
+}
+.members-modal-header .members-count-tag {
+  background: rgba(46,117,182,0.2);
+  border: 1px solid rgba(46,117,182,0.35);
+  color: #60b4ff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  margin-left: 10px;
+}
+.members-modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: #94a3b8;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.members-modal-close:hover {
+  background: rgba(231,76,60,0.2);
+  border-color: rgba(231,76,60,0.4);
+  color: #e74c3c;
+}
+.members-modal-list {
+  padding: 12px 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.members-modal-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+.members-modal-item:hover {
+  background: rgba(255,255,255,0.04);
+}
+.members-modal-av {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.members-modal-info {
+  flex: 1;
+  min-width: 0;
+}
+.members-modal-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+.members-modal-username {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+.members-modal-badges {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.member-badge-system {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.member-badge-system.admin {
+  background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(16,185,129,0.12));
+  border: 1px solid rgba(34,197,94,0.4);
+  color: #4ade80;
+}
+.member-badge-system.moderator {
+  background: rgba(168,85,247,0.15);
+  border: 1px solid rgba(168,85,247,0.35);
+  color: #c084fc;
+}
+.member-badge-chat {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(96,180,255,0.12);
+  border: 1px solid rgba(96,180,255,0.25);
+  color: #a7d4ff;
+}

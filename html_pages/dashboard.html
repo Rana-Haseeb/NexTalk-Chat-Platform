@@ -5,9 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NexTalk — Dashboard</title>
     <link rel="stylesheet" href="style.css" />
+    <style>
+      /* Additional styles for new chat features */
+      .chat-btn-join {
+        background: var(--blue);
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+        margin: 20px auto;
+        display: block;
+      }
+      .chat-btn-join:hover {
+        background: var(--navy);
+      }
+      .disabled-state {
+        text-align: center;
+        padding: 50px;
+        color: var(--muted);
+        font-style: italic;
+      }
+      .request-item {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+      }
+      .request-actions {
+        display: flex;
+        gap: 5px;
+        margin-top: 5px;
+      }
+      .btn-approve, .btn-reject {
+        flex: 1;
+        padding: 5px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        color: white;
+      }
+      .btn-approve { background: var(--online); }
+      .btn-reject { background: var(--danger); }
+      .room-item.pending { opacity: 0.6; }
+      
+      .action-modal-overlay {
+        position: fixed; inset: 0; z-index: 10000;
+        background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);
+        display: flex; align-items: center; justify-content: center;
+        padding: 20px;
+      }
+      .action-modal-card {
+        background: #1b2b3a; border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px; padding: 36px 32px; max-width: 420px; width: 100%;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+      }
+    </style>
   </head>
   <body>
-    <!-- ── Auth Guard Loading Screen (shown until session verified) ── -->
+    <!-- Auth Guard Loading Screen -->
     <div id="auth-guard" class="auth-guard">
       <div class="guard-content">
         <div class="guard-logo">Nex<span>Talk</span></div>
@@ -16,504 +74,118 @@
       </div>
     </div>
 
+    <!-- Action Modal -->
+    <div class="action-modal-overlay" id="action-modal" style="display: none;">
+      <div class="action-modal-card">
+        <div class="modal-title" id="modal-title" style="font-size: 1.2rem; color: #fff; margin-bottom: 15px; font-weight: bold;">Title</div>
+        <div class="form-group" style="margin-bottom: 20px;">
+          <input type="text" id="modal-input" class="form-input" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #4a6178; background: #0d1f33; color: #fff;" placeholder="Enter here...">
+        </div>
+        <div class="modal-actions" style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="btn-cancel" onclick="closeModal()" style="padding: 10px 20px; background: transparent; border: 1px solid #4a6178; color: #94a3b8; border-radius: 8px; cursor: pointer;">Cancel</button>
+          <button class="btn-submit" id="modal-submit" style="padding: 10px 20px; background: var(--blue); border: none; color: white; border-radius: 8px; cursor: pointer;">Submit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Members List Modal -->
+    <div class="members-modal-overlay" id="members-modal" style="display: none;" onclick="if(event.target===this)closeMembersModal()">
+      <div class="members-modal-card">
+        <div class="members-modal-header">
+          <div style="display:flex;align-items:center;">
+            <h3 id="members-modal-title">Members</h3>
+            <span class="members-count-tag" id="members-modal-count">0</span>
+          </div>
+          <button class="members-modal-close" onclick="closeMembersModal()">✕</button>
+        </div>
+        <div class="members-modal-list" id="members-modal-list"></div>
+      </div>
+    </div>
+
     <div class="app-shell" id="app-shell" style="display: none">
       <!-- ══════════════ LEFT SIDEBAR ══════════════ -->
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="sidebar-logo">Nex<span>Talk</span></div>
-          <button
-            class="icon-btn"
-            style="
-              border-color: rgba(255, 255, 255, 0.1);
-              background: rgba(255, 255, 255, 0.06);
-              color: #cbd5e1;
-            "
-            title="New Chat"
-          >
-            ✏️
-          </button>
-        </div>
-
-        <div class="sidebar-search">
-          <input
-            class="search-input"
-            type="text"
-            placeholder="🔍  Search rooms or people..."
-          />
-        </div>
-
-        <!-- Rooms -->
-        <div class="sidebar-section">Rooms</div>
-        <div class="room-list">
-          <div class="room-item active">
-            <div class="room-avatar">💻</div>
-            <div class="room-info">
-              <div class="room-name"># general</div>
-              <div class="room-preview">Ali: WebSockets are amazing!</div>
-            </div>
-            <div class="room-meta">
-              <div class="room-time">2m</div>
-              <div class="unread-badge">3</div>
-            </div>
-          </div>
-
-          <div class="room-item">
-            <div class="room-avatar">📚</div>
-            <div class="room-info">
-              <div class="room-name"># web-tech-se3003</div>
-              <div class="room-preview">Usman: Phase 1 done!</div>
-            </div>
-            <div class="room-meta">
-              <div class="room-time">15m</div>
-            </div>
-          </div>
-
-          <div class="room-item">
-            <div class="room-avatar">🎮</div>
-            <div class="room-info">
-              <div class="room-name"># off-topic</div>
-              <div class="room-preview">Sara: Anyone up for gaming?</div>
-            </div>
-            <div class="room-meta">
-              <div class="room-time">1h</div>
-              <div class="unread-badge">7</div>
-            </div>
-          </div>
-
-          <div class="room-item">
-            <div class="room-avatar">🚀</div>
-            <div class="room-info">
-              <div class="room-name"># project-ideas</div>
-              <div class="room-preview">Hassan: Great concept!</div>
-            </div>
-            <div class="room-meta">
-              <div class="room-time">3h</div>
-            </div>
+          <div style="display: flex; gap: 5px;">
+            <button class="icon-btn" onclick="openActionModal('direct')" title="New Direct Message" style="width: 32px; height: 32px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: #cbd5e1;">👤</button>
+            <button class="icon-btn" onclick="openActionModal('group')" title="New Group Chat" style="width: 32px; height: 32px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: #cbd5e1;">👥</button>
+            <button class="icon-btn" id="btn-new-community" onclick="openActionModal('community')" title="New Community" style="display:none; width: 32px; height: 32px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: #cbd5e1;">🌍</button>
           </div>
         </div>
 
-        <!-- Direct Messages -->
-        <div class="sidebar-section">Direct Messages</div>
-        <div class="room-list">
-          <div class="room-item">
-            <div
-              class="room-avatar user-av"
-              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
-            >
-              S
-              <div class="online-dot"></div>
-            </div>
-            <div class="room-info">
-              <div class="room-name">Sara Ahmed</div>
-              <div class="room-preview">Got it, thanks!</div>
-            </div>
-            <div class="room-meta">
-              <div class="room-time">5m</div>
-            </div>
-          </div>
+        <div style="flex: 1; overflow-y: auto;">
+            <!-- Communities -->
+            <div class="sidebar-section">Communities</div>
+            <div id="list-communities" class="room-list" style="flex: none; overflow: visible;"></div>
 
-          <div class="room-item">
-            <div
-              class="room-avatar user-av"
-              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
-            >
-              U
-            </div>
-            <div class="room-info">
-              <div class="room-name">Usman Khan</div>
-              <div class="room-preview">Let's sync tomorrow</div>
-            </div>
-            <div class="room-meta">
-              <div class="room-time">1h</div>
-            </div>
-          </div>
+            <!-- Groups -->
+            <div class="sidebar-section">Groups</div>
+            <div id="list-groups" class="room-list" style="flex: none; overflow: visible;"></div>
+
+            <!-- Direct Messages -->
+            <div class="sidebar-section">Direct Messages</div>
+            <div id="list-directs" class="room-list" style="flex: none; overflow: visible;"></div>
         </div>
 
-        <!-- Bottom user info (populated dynamically) -->
+        <!-- Bottom user info -->
         <div class="sidebar-user">
           <div class="user-av-sm" id="user-avatar">?</div>
           <div class="user-info">
             <div class="user-name" id="user-display-name">Loading...</div>
             <div class="user-role-badge" id="user-role-badge">Member</div>
-            <div class="user-status">● Online</div>
           </div>
-          <button
-            class="icon-btn logout-btn"
-            id="btn-logout"
-            onclick="handleLogout()"
-            style="
-              border-color: rgba(255, 255, 255, 0.1);
-              background: rgba(231, 76, 60, 0.15);
-              color: #e74c3c;
-            "
-            title="Logout"
-          >
-            🚪
-          </button>
+          <button class="icon-btn logout-btn" onclick="handleLogout()" style="border-color: rgba(255,255,255,0.1); background: rgba(231,76,60,0.15); color: #e74c3c;" title="Logout">🚪</button>
         </div>
       </aside>
 
       <!-- ══════════════ MAIN CHAT AREA ══════════════ -->
       <main class="chat-area">
-        <!-- Header -->
         <div class="chat-header">
           <div class="chat-header-info">
-            <div class="chat-room-icon">💻</div>
+            <div class="chat-room-icon" id="chat-header-icon">💬</div>
             <div>
-              <div class="chat-room-name"># general</div>
-              <div class="chat-room-meta">24 members · 18 online</div>
+              <div class="chat-room-name" id="chat-header-name">Select a conversation</div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div class="chat-room-meta" id="chat-header-meta">...</div>
+                <button class="member-count-btn" id="member-count-btn" style="display:none;" onclick="openMembersModal()">
+                  <span class="count-icon">👥</span>
+                  <span id="member-count-text">0 members</span>
+                </button>
+              </div>
             </div>
           </div>
           <div class="chat-actions">
-            <button class="icon-btn" title="Search">🔍</button>
-            <button class="icon-btn" title="Members">👥</button>
-            <button
-              class="icon-btn"
-              id="btn-room-settings"
-              data-min-role="moderator"
-              title="Settings"
-            >
-              ⚙️
-            </button>
+            <button class="icon-btn" id="btn-add-user" onclick="openActionModal('add_user')" title="Add User" style="display:none;">➕</button>
           </div>
         </div>
 
-        <!-- Messages -->
-        <div class="messages-area">
-          <!-- System message / date divider -->
-          <div
-            style="
-              text-align: center;
-              color: var(--muted);
-              font-size: 0.78rem;
-              display: flex;
-              align-items: center;
-              gap: 12px;
-            "
-          >
-            <div style="flex: 1; height: 1px; background: var(--border)"></div>
-            Today
-            <div style="flex: 1; height: 1px; background: var(--border)"></div>
-          </div>
-
-          <!-- Message from Sara -->
-          <div class="msg-group">
-            <div
-              class="msg-av"
-              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
-            >
-              S
-            </div>
-            <div class="msg-body">
-              <div class="msg-sender">Sara Ahmed</div>
-              <div class="msg-bubble">
-                Hey everyone! Has anyone started on the Phase 1 submission yet?
-              </div>
-              <div class="msg-time">10:14 AM</div>
-            </div>
-          </div>
-
-          <!-- Message from Usman -->
-          <div class="msg-group">
-            <div
-              class="msg-av"
-              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
-            >
-              U
-            </div>
-            <div class="msg-body">
-              <div class="msg-sender">Usman Khan</div>
-              <div class="msg-bubble">
-                Yes! I finished the problem statement and actors section.
-                Working on the HTML pages now.
-              </div>
-              <div class="msg-time">10:16 AM</div>
-            </div>
-          </div>
-
-          <!-- Message from Hassan -->
-          <div class="msg-group">
-            <div
-              class="msg-av"
-              style="background: linear-gradient(135deg, #f59e0b, #d97706)"
-            >
-              H
-            </div>
-            <div class="msg-body">
-              <div class="msg-sender">Hassan Raza</div>
-              <div class="msg-bubble">
-                Our project is a real-time chat app using WebSockets 😄 quite
-                fitting that we're discussing it on a chat app!
-              </div>
-              <div class="msg-time">10:18 AM</div>
-            </div>
-          </div>
-
-          <!-- Message from Sara -->
-          <div class="msg-group">
-            <div
-              class="msg-av"
-              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
-            >
-              S
-            </div>
-            <div class="msg-body">
-              <div class="msg-sender">Sara Ahmed</div>
-              <div class="msg-bubble">
-                Haha very meta 😂 I love it. NexTalk is a great name for the
-                project btw.
-              </div>
-              <div class="msg-time">10:19 AM</div>
-            </div>
-          </div>
-
-          <!-- Own message (right aligned) -->
-          <div class="msg-group own">
-            <div
-              class="msg-av"
-              style="background: linear-gradient(135deg, #1e3a5f, #2e75b6)"
-              id="msg-own-avatar-1"
-            >
-              A
-            </div>
-            <div class="msg-body">
-              <div class="msg-bubble">
-                Just finished the dashboard HTML page. It looks really clean —
-                three panel layout with sidebar, chat window and member list.
-                Sharing the file shortly.
-              </div>
-              <div class="msg-time">10:22 AM · ✓✓</div>
-            </div>
-          </div>
-
-          <!-- Another own message -->
-          <div class="msg-group own">
-            <div
-              class="msg-av"
-              style="background: linear-gradient(135deg, #1e3a5f, #2e75b6)"
-              id="msg-own-avatar-2"
-            >
-              A
-            </div>
-            <div class="msg-body">
-              <div class="msg-bubble">
-                WebSockets are genuinely awesome. The difference vs regular HTTP
-                polling is night and day.
-              </div>
-              <div class="msg-time">10:23 AM · ✓✓</div>
-            </div>
-          </div>
-
-          <!-- Message from Usman -->
-          <div class="msg-group">
-            <div
-              class="msg-av"
-              style="background: linear-gradient(135deg, #8b5cf6, #6d28d9)"
-            >
-              U
-            </div>
-            <div class="msg-body">
-              <div class="msg-sender">Usman Khan</div>
-              <div class="msg-bubble">
-                Agreed! Can't wait to implement the actual ws server in Phase 2.
-                Let's finalize the doc today and submit.
-              </div>
-              <div class="msg-time">10:25 AM</div>
-            </div>
-          </div>
+        <div class="messages-area" id="messages-container">
+           <div class="disabled-state">Please select a conversation from the sidebar to start messaging.</div>
         </div>
 
-        <!-- Typing indicator -->
-        <div class="typing-indicator">
-          <div class="typing-dots"><span></span><span></span><span></span></div>
-          Sara is typing...
-        </div>
-
-        <!-- Input -->
-        <div class="chat-input-area">
-          <button class="icon-btn" title="Attach file">📎</button>
-          <input
-            class="chat-input"
-            type="text"
-            placeholder="Message #general..."
-          />
-          <button class="icon-btn" title="Emoji">😊</button>
-          <button class="send-btn" title="Send">➤</button>
+        <div class="chat-input-area" id="chat-input-area" style="display: none;">
+          <input class="chat-input" type="text" id="message-input" placeholder="Type a message..." onkeypress="if(event.key === 'Enter') sendMessage();" />
+          <button class="send-btn" onclick="sendMessage()" title="Send">➤</button>
         </div>
       </main>
 
       <!-- ══════════════ RIGHT PANEL ══════════════ -->
       <aside class="right-panel">
-        <div class="panel-section">
-          <div class="panel-title">Role Controls</div>
-          <button
-            class="role-action-btn"
-            id="btn-manage-roles"
-            data-min-role="admin"
-          >
-            Manage Roles
-          </button>
-          <button
-            class="role-action-btn"
-            id="btn-moderate"
-            data-min-role="moderator"
-          >
-            Moderate Messages
-          </button>
-          <button
-            class="role-action-btn"
-            id="btn-manage-rooms"
-            data-min-role="moderator"
-            onclick="window.location.href='manage_rooms.html'"
-          >
-            💬 Manage Rooms
-          </button>
-          <div
-            class="member-role"
-            style="margin-top: 10px"
-            id="role-controls-note"
-          >
-            Role-based controls are enabled.
-          </div>
+        <div class="panel-section" id="community-requests-section" style="display:none;">
+          <div class="panel-title">Community Requests</div>
+          <div id="requests-list"></div>
         </div>
 
         <div class="panel-divider"></div>
 
         <div class="panel-section">
-          <div class="panel-title">Online — 18</div>
-
-          <div class="member-item">
-            <div
-              class="member-av"
-              style="background: linear-gradient(135deg, #e74c3c, #c0392b)"
-            >
-              S
-              <div
-                class="online-dot"
-                style="
-                  position: absolute;
-                  bottom: 0;
-                  right: 0;
-                  width: 9px;
-                  height: 9px;
-                  border-radius: 50%;
-                  background: var(--online);
-                  border: 2px solid var(--card);
-                "
-              ></div>
-            </div>
-            <div>
-              <div class="member-name">Sara Ahmed</div>
-              <div class="member-role">Admin</div>
-            </div>
-          </div>
-
+          <div class="panel-title">Online Information</div>
           <div class="member-item" id="member-self">
-            <div
-              class="member-av"
-              style="
-                background: linear-gradient(135deg, #1e3a5f, #2e75b6);
-                position: relative;
-              "
-              id="member-self-avatar"
-            >
-              A
-              <div
-                class="online-dot"
-                style="
-                  position: absolute;
-                  bottom: 0;
-                  right: 0;
-                  width: 9px;
-                  height: 9px;
-                  border-radius: 50%;
-                  background: var(--online);
-                  border: 2px solid var(--card);
-                "
-              ></div>
-            </div>
+            <div class="member-av" style="background: linear-gradient(135deg, #1e3a5f, #2e75b6); position: relative;" id="member-self-avatar">A</div>
             <div>
-              <div class="member-name" id="member-self-name">Ali Hassan</div>
-              <div class="member-role" id="member-self-role">Member · You</div>
-            </div>
-          </div>
-
-          <div class="member-item">
-            <div
-              class="member-av"
-              style="
-                background: linear-gradient(135deg, #8b5cf6, #6d28d9);
-                position: relative;
-              "
-            >
-              U
-              <div
-                class="online-dot"
-                style="
-                  position: absolute;
-                  bottom: 0;
-                  right: 0;
-                  width: 9px;
-                  height: 9px;
-                  border-radius: 50%;
-                  background: var(--online);
-                  border: 2px solid var(--card);
-                "
-              ></div>
-            </div>
-            <div>
-              <div class="member-name">Usman Khan</div>
-              <div class="member-role">Member</div>
-            </div>
-          </div>
-
-          <div class="member-item">
-            <div
-              class="member-av"
-              style="background: linear-gradient(135deg, #f59e0b, #d97706)"
-            >
-              H
-            </div>
-            <div>
-              <div class="member-name">Hassan Raza</div>
-              <div class="member-role">Member</div>
-            </div>
-          </div>
-
-          <div class="member-item">
-            <div
-              class="member-av"
-              style="background: linear-gradient(135deg, #10b981, #059669)"
-            >
-              Z
-            </div>
-            <div>
-              <div class="member-name">Zainab Mir</div>
-              <div class="member-role">Member</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel-divider"></div>
-
-        <div class="panel-section">
-          <div class="panel-title">Offline — 6</div>
-          <div class="member-item">
-            <div class="member-av" style="background: #9ca3af">F</div>
-            <div>
-              <div class="member-name" style="color: var(--muted)">
-                Fatima Noor
-              </div>
-              <div class="member-role">Last seen 2h ago</div>
-            </div>
-          </div>
-          <div class="member-item">
-            <div class="member-av" style="background: #9ca3af">M</div>
-            <div>
-              <div class="member-name" style="color: var(--muted)">
-                Mohsin Ali
-              </div>
-              <div class="member-role">Last seen 5h ago</div>
+              <div class="member-name" id="member-self-name">Loading...</div>
+              <div class="member-role" id="member-self-role">You</div>
             </div>
           </div>
         </div>
@@ -521,54 +193,25 @@
     </div>
 
     <script>
-      function toRoleLabel(role) {
-        const labels = {
-          admin: "Admin",
-          moderator: "Moderator",
-          member: "Member",
-        };
-        return labels[role] || "Member";
+      let currentUser = null;
+      let currentConversation = null;
+      let lastMessageId = 0;
+      let pollInterval = null;
+      let conversationsList = [];
+
+      function escapeHTML(str) {
+        const p = document.createElement('p');
+        p.appendChild(document.createTextNode(str));
+        return p.innerHTML;
       }
 
-      function hasMinimumRole(actualRole, requiredRole) {
-        const rank = { member: 1, moderator: 2, admin: 3 };
-        return (rank[actualRole] || 1) >= (rank[requiredRole] || 1);
-      }
-
-      function applyRoleAccess(role) {
-        const gated = document.querySelectorAll("[data-min-role]");
-
-        gated.forEach((el) => {
-          const required = (el.dataset.minRole || "member").toLowerCase();
-          const allowed = hasMinimumRole(role, required);
-
-          if (allowed) {
-            el.disabled = false;
-            el.style.opacity = "1";
-            el.style.pointerEvents = "auto";
-          } else {
-            el.disabled = true;
-            el.style.opacity = ".45";
-            el.style.pointerEvents = "none";
-          }
-        });
-
-        const note = document.getElementById("role-controls-note");
-        if (!note) return;
-
-        if (role === "admin") {
-          note.textContent =
-            "Admin access: full moderation and role management.";
-        } else if (role === "moderator") {
-          note.textContent =
-            "Moderator access: moderation and room settings enabled.";
-        } else {
-          note.textContent = "Member access: standard chat features enabled.";
-        }
+      function formatTime(dateString) {
+        const d = new Date(dateString);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       }
 
       // ══════════════════════════════════════════
-      //  SESSION GUARD — Block access without login
+      //  SESSION GUARD
       // ══════════════════════════════════════════
       (async function guardPage() {
         try {
@@ -576,74 +219,419 @@
           const data = await res.json();
 
           if (!data.authenticated) {
-            // Not logged in → redirect to auth page
             window.location.href = "auth.html";
             return;
           }
 
-          // ── Populate user info on the dashboard ──
-          const user = data.user;
-          const initial = user.first_name.charAt(0).toUpperCase();
-          const fullName = user.first_name + " " + user.last_name;
-          const role = (user.role || "member").toLowerCase();
-          const roleLabel = toRoleLabel(role);
+          currentUser = data.user;
+          const initial = currentUser.first_name.charAt(0).toUpperCase();
+          const fullName = currentUser.first_name + " " + currentUser.last_name;
+          const roleLabel = (currentUser.role || "member").toUpperCase();
 
-          // Sidebar bottom user
           document.getElementById("user-avatar").textContent = initial;
           document.getElementById("user-display-name").textContent = fullName;
           document.getElementById("user-role-badge").textContent = roleLabel;
-
-          // Right panel self-member
+          
           document.getElementById("member-self-avatar").textContent = initial;
           document.getElementById("member-self-name").textContent = fullName;
-          document.getElementById("member-self-role").textContent =
-            roleLabel + " · You";
 
-          // Own message avatars
-          const av1 = document.getElementById("msg-own-avatar-1");
-          const av2 = document.getElementById("msg-own-avatar-2");
-          if (av1) av1.textContent = initial;
-          if (av2) av2.textContent = initial;
+          if (currentUser.role === 'admin') {
+              document.getElementById("btn-new-community").style.display = "inline-flex";
+              document.getElementById("community-requests-section").style.display = "block";
+          }
 
-          // Apply role gating for controls
-          applyRoleAccess(role);
-
-          // Hide guard, show app
           document.getElementById("auth-guard").style.display = "none";
           document.getElementById("app-shell").style.display = "flex";
+
+          fetchConversations();
+          if (currentUser.role === 'admin') fetchCommunityRequests();
+          
+          // Start 3-second polling for conversations and requests
+          setInterval(() => {
+              fetchConversations();
+              if (currentUser.role === 'admin') fetchCommunityRequests();
+          }, 3000);
+
         } catch (err) {
-          // Network error → redirect to auth
           window.location.href = "auth.html";
         }
       })();
 
-      // ══════════════════════════════════════════
-      //  LOGOUT — session_destroy via AJAX
-      // ══════════════════════════════════════════
       async function handleLogout() {
         try {
           const res = await fetch("../api/logout.php");
           const data = await res.json();
-
-          if (data.success) {
-            window.location.href = "auth.html";
-          }
+          if (data.success) window.location.href = "auth.html";
         } catch (err) {
-          alert("Logout failed. Please try again.");
+          alert("Logout failed.");
         }
       }
 
-      document
-        .getElementById("btn-manage-roles")
-        ?.addEventListener("click", function () {
-          alert("Admin control: role management panel can be connected here.");
-        });
+      // ══════════════════════════════════════════
+      //  CONVERSATIONS LOGIC
+      // ══════════════════════════════════════════
+      async function fetchConversations() {
+          try {
+              const res = await fetch("../api/chat/manage_conversations.php?action=get");
+              const data = await res.json();
+              if (data.success) {
+                  conversationsList = data.conversations;
+                  renderConversations();
+              }
+          } catch(e) { console.error(e); }
+      }
 
-      document
-        .getElementById("btn-moderate")
-        ?.addEventListener("click", function () {
-          alert("Moderator control: moderation tools can be connected here.");
-        });
+      function renderConversations() {
+          const lists = {
+              'community': document.getElementById('list-communities'),
+              'group': document.getElementById('list-groups'),
+              'direct': document.getElementById('list-directs')
+          };
+          
+          Object.values(lists).forEach(el => el.innerHTML = '');
+
+          conversationsList.forEach(conv => {
+              const el = document.createElement('div');
+              el.className = `room-item ${currentConversation && currentConversation.id == conv.id ? 'active' : ''} ${conv.my_status === 'pending' ? 'pending' : ''}`;
+              
+              const isDirect = conv.type === 'direct';
+              const icon = isDirect ? '👤' : (conv.type === 'group' ? '👥' : '🌍');
+              const name = conv.name || 'Unknown';
+              
+              let statusText = '';
+              if (!conv.my_status && conv.type === 'community') statusText = 'Click to Join';
+              else if (conv.my_status === 'pending') statusText = 'Pending Approval';
+
+              el.innerHTML = `
+                <div class="room-avatar ${isDirect ? 'user-av' : ''}" style="background: linear-gradient(135deg, var(--blue), var(--blue-lt))">
+                  ${icon}
+                </div>
+                <div class="room-info">
+                  <div class="room-name">${escapeHTML(name)}</div>
+                  ${statusText ? `<div class="room-preview" style="color:#e74c3c;">${statusText}</div>` : ''}
+                </div>
+              `;
+
+              el.onclick = () => selectConversation(conv);
+              lists[conv.type].appendChild(el);
+          });
+      }
+
+      function selectConversation(conv) {
+          currentConversation = conv;
+          lastMessageId = 0;
+          renderConversations(); // update active state
+
+          const name = conv.name || 'Unknown';
+          const isDirect = conv.type === 'direct';
+          document.getElementById('chat-header-icon').textContent = isDirect ? '👤' : (conv.type === 'group' ? '👥' : '🌍');
+          document.getElementById('chat-header-name').textContent = name;
+          document.getElementById('chat-header-meta').textContent = conv.type.toUpperCase();
+
+          const container = document.getElementById('messages-container');
+          const inputArea = document.getElementById('chat-input-area');
+          const addUserBtn = document.getElementById('btn-add-user');
+          const memberCountBtn = document.getElementById('member-count-btn');
+
+          // Show member count for groups/communities, hide for DMs
+          if (!isDirect && conv.my_status === 'approved') {
+              memberCountBtn.style.display = 'inline-flex';
+              fetchMemberCount(conv.id);
+          } else {
+              memberCountBtn.style.display = 'none';
+          }
+
+          // Check permissions
+          if (conv.my_status === 'approved') {
+              inputArea.style.display = 'flex';
+              addUserBtn.style.display = (conv.my_role === 'admin' && !isDirect) ? 'inline-flex' : 'none';
+              
+              if (pollInterval) clearInterval(pollInterval);
+              fetchMessages(true);
+              pollInterval = setInterval(() => fetchMessages(), 3000);
+          } else {
+              inputArea.style.display = 'none';
+              addUserBtn.style.display = 'none';
+              memberCountBtn.style.display = 'none';
+              if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+
+              if (!conv.my_status && conv.type === 'community') {
+                  container.innerHTML = `
+                    <div class="disabled-state">
+                        <h2>Welcome to ${escapeHTML(name)}</h2>
+                        <p>This is a community. You must request to join to view messages.</p>
+                        <button class="chat-btn-join" onclick="requestJoin(${conv.id})">Request to Join</button>
+                    </div>
+                  `;
+              } else if (conv.my_status === 'pending') {
+                  container.innerHTML = `
+                    <div class="disabled-state">
+                        <h2>Join Request Pending</h2>
+                        <p>An admin must approve your request before you can participate.</p>
+                    </div>
+                  `;
+              }
+          }
+      }
+
+      async function requestJoin(convId) {
+          const formData = new FormData();
+          formData.append('action', 'request_join');
+          formData.append('conversation_id', convId);
+          try {
+              const res = await fetch('../api/chat/community_requests.php', { method: 'POST', body: formData });
+              const data = await res.json();
+              if (data.success) {
+                  fetchConversations();
+                  selectConversation({...currentConversation, my_status: 'pending'});
+              } else {
+                  alert(data.message);
+              }
+          } catch(e) { console.error(e); }
+      }
+
+      // ══════════════════════════════════════════
+      //  MESSAGES LOGIC
+      // ══════════════════════════════════════════
+      async function fetchMessages(initial = false) {
+          if (!currentConversation || currentConversation.my_status !== 'approved') return;
+
+          try {
+              const res = await fetch(`../api/chat/get_messages.php?conversation_id=${currentConversation.id}&last_message_id=${lastMessageId}`);
+              const data = await res.json();
+
+              if (data.success) {
+                  const container = document.getElementById('messages-container');
+                  if (initial) container.innerHTML = '';
+                  
+                  if (data.messages.length > 0) {
+                      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+
+                      data.messages.forEach(msg => {
+                          const isOwn = msg.sender_id == currentUser.id;
+                          const initialChar = msg.first_name.charAt(0).toUpperCase();
+                          const isAdmin = msg.sender_role === 'admin';
+                          const adminBadge = isAdmin ? '<span class="msg-admin-badge">Admin</span>' : '';
+                          const html = `
+                              <div class="msg-group ${isOwn ? 'own' : ''}">
+                                  <div class="msg-av" style="background: linear-gradient(135deg, ${isOwn ? '#1e3a5f, #2e75b6' : (isAdmin ? '#166534, #22c55e' : '#8b5cf6, #6d28d9')})">
+                                      ${initialChar}
+                                  </div>
+                                  <div class="msg-body">
+                                      ${!isOwn ? `<div class="msg-sender">${escapeHTML(msg.first_name + ' ' + msg.last_name)}${adminBadge}</div>` : ''}
+                                      <div class="msg-bubble">${escapeHTML(msg.content)}</div>
+                                      <div class="msg-time">${formatTime(msg.created_at)}</div>
+                                  </div>
+                              </div>
+                          `;
+                          container.insertAdjacentHTML('beforeend', html);
+                          lastMessageId = Math.max(lastMessageId, msg.id);
+                      });
+
+                      if (isNearBottom || initial) {
+                          container.scrollTop = container.scrollHeight;
+                      }
+                  } else if (initial) {
+                      container.innerHTML = `<div class="disabled-state">No messages yet. Start the conversation!</div>`;
+                  }
+              }
+          } catch (e) { console.error(e); }
+      }
+
+      async function sendMessage() {
+          const input = document.getElementById('message-input');
+          const content = input.value.trim();
+          if (!content || !currentConversation || currentConversation.my_status !== 'approved') return;
+
+          input.value = '';
+          const formData = new FormData();
+          formData.append('conversation_id', currentConversation.id);
+          formData.append('content', content);
+
+          try {
+              await fetch('../api/chat/send_message.php', { method: 'POST', body: formData });
+              fetchMessages();
+          } catch(e) { console.error(e); }
+      }
+
+      // ══════════════════════════════════════════
+      //  MODALS & ACTIONS
+      // ══════════════════════════════════════════
+      let currentAction = null;
+      function openActionModal(action) {
+          currentAction = action;
+          const modal = document.getElementById('action-modal');
+          const title = document.getElementById('modal-title');
+          const input = document.getElementById('modal-input');
+          
+          input.value = '';
+          modal.style.display = 'flex';
+
+          if (action === 'direct') {
+              title.textContent = 'New Direct Message';
+              input.placeholder = 'Enter exact username or email';
+          } else if (action === 'group') {
+              title.textContent = 'Create New Group';
+              input.placeholder = 'Enter group name';
+          } else if (action === 'community') {
+              title.textContent = 'Create New Community';
+              input.placeholder = 'Enter community name';
+          } else if (action === 'add_user') {
+              title.textContent = 'Add User to ' + escapeHTML(currentConversation.name);
+              input.placeholder = 'Enter exact username or email';
+          }
+      }
+
+      function closeModal() {
+          document.getElementById('action-modal').style.display = 'none';
+          currentAction = null;
+      }
+
+      document.getElementById('modal-submit').onclick = async () => {
+          const val = document.getElementById('modal-input').value.trim();
+          if (!val) return;
+
+          const formData = new FormData();
+          let endpoint = '../api/chat/manage_conversations.php';
+          
+          if (currentAction === 'direct') {
+              formData.append('action', 'create_direct');
+              formData.append('target_username', val);
+          } else if (currentAction === 'group') {
+              formData.append('action', 'create_group');
+              formData.append('name', val);
+          } else if (currentAction === 'community') {
+              formData.append('action', 'create_community');
+              formData.append('name', val);
+          } else if (currentAction === 'add_user') {
+              formData.append('action', 'add_user');
+              formData.append('conversation_id', currentConversation.id);
+              formData.append('target_username', val);
+          }
+
+          try {
+              const res = await fetch(endpoint, { method: 'POST', body: formData });
+              const data = await res.json();
+              
+              if (data.success) {
+                  closeModal();
+                  fetchConversations();
+                  if (data.message) alert(data.message);
+              } else {
+                  alert(data.message);
+              }
+          } catch(e) { alert('An error occurred'); }
+      };
+
+      // ══════════════════════════════════════════
+      //  COMMUNITY REQUESTS (Admins)
+      // ══════════════════════════════════════════
+      async function fetchCommunityRequests() {
+          try {
+              const res = await fetch('../api/chat/community_requests.php?action=get_requests');
+              const data = await res.json();
+              if (data.success) {
+                  const list = document.getElementById('requests-list');
+                  list.innerHTML = '';
+                  
+                  if (data.requests.length === 0) {
+                      list.innerHTML = '<div style="color:var(--muted); font-size: 0.8rem;">No pending requests</div>';
+                      return;
+                  }
+
+                  data.requests.forEach(req => {
+                      const div = document.createElement('div');
+                      div.className = 'request-item';
+                      div.innerHTML = `
+                          <div style="font-size: 0.8rem; font-weight: bold; color: #e2e8f0;">${escapeHTML(req.first_name + ' ' + req.last_name)}</div>
+                          <div style="font-size: 0.7rem; color: var(--muted); margin-bottom: 5px;">Wants to join ${escapeHTML(req.community_name)}</div>
+                          <div class="request-actions">
+                              <button class="btn-approve" onclick="handleRequest(${req.conversation_id}, ${req.user_id}, 'approved')">Approve</button>
+                              <button class="btn-reject" onclick="handleRequest(${req.conversation_id}, ${req.user_id}, 'rejected')">Reject</button>
+                          </div>
+                      `;
+                      list.appendChild(div);
+                  });
+              }
+          } catch(e) { console.error(e); }
+      }
+
+      async function handleRequest(convId, userId, status) {
+          const formData = new FormData();
+          formData.append('action', 'handle_request');
+          formData.append('conversation_id', convId);
+          formData.append('target_user_id', userId);
+          formData.append('status', status);
+
+          try {
+              const res = await fetch('../api/chat/community_requests.php', { method: 'POST', body: formData });
+              const data = await res.json();
+              if (data.success) fetchCommunityRequests();
+          } catch(e) { console.error(e); }
+      }
+
+      // ══════════════════════════════════════════
+      //  MEMBER COUNT & LIST
+      // ══════════════════════════════════════════
+      async function fetchMemberCount(convId) {
+          try {
+              const res = await fetch(`../api/chat/get_participants.php?conversation_id=${convId}`);
+              const data = await res.json();
+              if (data.success) {
+                  document.getElementById('member-count-text').textContent = data.count + ' member' + (data.count !== 1 ? 's' : '');
+              }
+          } catch(e) { console.error(e); }
+      }
+
+      async function openMembersModal() {
+          if (!currentConversation) return;
+          const modal = document.getElementById('members-modal');
+          const list = document.getElementById('members-modal-list');
+          const title = document.getElementById('members-modal-title');
+          const countTag = document.getElementById('members-modal-count');
+
+          title.textContent = escapeHTML(currentConversation.name || 'Members');
+          list.innerHTML = '<div style="text-align:center;color:#64748b;padding:20px;">Loading...</div>';
+          modal.style.display = 'flex';
+
+          try {
+              const res = await fetch(`../api/chat/get_participants.php?conversation_id=${currentConversation.id}`);
+              const data = await res.json();
+              if (data.success) {
+                  countTag.textContent = data.count;
+                  list.innerHTML = '';
+                  data.participants.forEach(p => {
+                      const initial = p.first_name.charAt(0).toUpperCase();
+                      const gradients = { admin: '#166534, #22c55e', moderator: '#6d28d9, #a78bfa', member: '#1e3a5f, #2e75b6' };
+                      const grad = gradients[p.system_role] || gradients.member;
+
+                      let badges = '';
+                      if (p.system_role === 'admin') badges += '<span class="member-badge-system admin">Admin</span>';
+                      else if (p.system_role === 'moderator') badges += '<span class="member-badge-system moderator">Mod</span>';
+                      if (p.chat_role === 'admin') badges += '<span class="member-badge-chat">Owner</span>';
+
+                      list.innerHTML += `
+                        <div class="members-modal-item">
+                          <div class="members-modal-av" style="background:linear-gradient(135deg,${grad})">${initial}</div>
+                          <div class="members-modal-info">
+                            <div class="members-modal-name">${escapeHTML(p.first_name + ' ' + p.last_name)}</div>
+                            <div class="members-modal-username">@${escapeHTML(p.username)}</div>
+                          </div>
+                          <div class="members-modal-badges">${badges}</div>
+                        </div>
+                      `;
+                  });
+              } else {
+                  list.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:20px;">Failed to load members.</div>';
+              }
+          } catch(e) {
+              list.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:20px;">Network error.</div>';
+          }
+      }
+
+      function closeMembersModal() {
+          document.getElementById('members-modal').style.display = 'none';
+      }
     </script>
   </body>
 </html>
