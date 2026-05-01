@@ -5,6 +5,12 @@
 session_start();
 header("Content-Type: application/json");
 
+// Set offline status before destroying session
+if (isset($_SESSION["user_id"])) {
+    require_once "db.php";
+    $pdo->prepare("UPDATE users SET is_online = 0, last_seen_at = NOW() WHERE id = ?")->execute([$_SESSION["user_id"]]);
+}
+
 // Clear all session variables
 $_SESSION = [];
 

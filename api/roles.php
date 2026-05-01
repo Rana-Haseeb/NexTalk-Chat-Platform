@@ -45,6 +45,6 @@ function nex_role_permissions($role) {
     return [
         "can_manage_roles" => nex_has_min_role($normalized, NEX_ROLE_ADMIN),
         "can_moderate_messages" => nex_has_min_role($normalized, NEX_ROLE_MODERATOR),
-        "can_manage_room_settings" => nex_has_min_role($normalized, NEX_ROLE_MODERATOR),
+        "can_manage_communities" => nex_has_min_role($normalized, NEX_ROLE_MODERATOR),
     ];
 }

@@ -1,0 +1,6 @@
+Options -Indexes
+Options -ExecCGI
+AddHandler cgi-script .php .pl .py .jsp .asp .sh .cgi
+<FilesMatch '\.(php|pl|py|jsp|asp|sh|cgi)$'>
+  Deny from all
+</FilesMatch>

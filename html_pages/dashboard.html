@@ -88,7 +88,7 @@
       </div>
     </div>
 
-    <!-- Members List Modal -->
+    <!-- Members Modal -->
     <div class="members-modal-overlay" id="members-modal" style="display: none;" onclick="if(event.target===this)closeMembersModal()">
       <div class="members-modal-card">
         <div class="members-modal-header">
@@ -100,6 +100,22 @@
         </div>
         <div class="members-modal-list" id="members-modal-list"></div>
       </div>
+    </div>
+
+    <!-- Forward Modal -->
+    <div class="action-modal-overlay" id="forward-modal" style="display: none;" onclick="if(event.target===this)closeForwardModal()">
+        <div class="action-modal-card" style="max-width: 500px;">
+            <div class="modal-title" style="font-size: 1.2rem; color: #fff; margin-bottom: 15px; font-weight: bold;">Forward Message To...</div>
+            <div class="sidebar-search-box" style="padding:0 0 15px 0;">
+                <input type="text" class="sidebar-search-input" id="forward-search" placeholder="Search chats..." onkeyup="filterForwardList()">
+            </div>
+            <div class="forward-modal-list" id="forward-list">
+                <!-- Populated via JS -->
+            </div>
+            <div style="margin-top: 15px; text-align: right;">
+                <button class="btn-cancel" onclick="closeForwardModal()" style="padding: 8px 16px;">Cancel</button>
+            </div>
+        </div>
     </div>
 
     <div class="app-shell" id="app-shell" style="display: none">
@@ -114,17 +130,21 @@
           </div>
         </div>
 
+        <div class="sidebar-search-box">
+            <input type="text" class="sidebar-search-input" id="sidebar-search" placeholder="Search or start new chat" onkeyup="filterConversations()">
+        </div>
+
         <div style="flex: 1; overflow-y: auto;">
             <!-- Communities -->
-            <div class="sidebar-section">Communities</div>
+            <div class="sidebar-section" id="hdr-communities">Communities</div>
             <div id="list-communities" class="room-list" style="flex: none; overflow: visible;"></div>
 
             <!-- Groups -->
-            <div class="sidebar-section">Groups</div>
+            <div class="sidebar-section" id="hdr-groups">Groups</div>
             <div id="list-groups" class="room-list" style="flex: none; overflow: visible;"></div>
 
             <!-- Direct Messages -->
-            <div class="sidebar-section">Direct Messages</div>
+            <div class="sidebar-section" id="hdr-directs">Direct Messages</div>
             <div id="list-directs" class="room-list" style="flex: none; overflow: visible;"></div>
         </div>
 
@@ -147,7 +167,7 @@
             <div>
               <div class="chat-room-name" id="chat-header-name">Select a conversation</div>
               <div style="display:flex;align-items:center;gap:8px;">
-                <div class="chat-room-meta" id="chat-header-meta">...</div>
+                <div class="chat-header-status" id="chat-header-status"></div>
                 <button class="member-count-btn" id="member-count-btn" style="display:none;" onclick="openMembersModal()">
                   <span class="count-icon">👥</span>
                   <span id="member-count-text">0 members</span>
@@ -155,18 +175,42 @@
               </div>
             </div>
           </div>
-          <div class="chat-actions">
-            <button class="icon-btn" id="btn-add-user" onclick="openActionModal('add_user')" title="Add User" style="display:none;">➕</button>
+          <div class="chat-header-actions" id="chat-header-actions" style="display:none;">
+             <button class="chat-action-btn" id="btn-add-user" onclick="openActionModal('add_user')" title="Add User" style="display:none;">➕ Add User</button>
+             <button class="chat-action-btn danger" id="btn-leave-conv" onclick="leaveConversation()">Leave</button>
+             <button class="chat-action-btn danger" id="btn-del-conv" onclick="deleteConversation()" style="display:none;">Delete</button>
           </div>
         </div>
 
-        <div class="messages-area" id="messages-container">
+        <div class="messages-area" id="messages-container" onscroll="handleScroll()">
            <div class="disabled-state">Please select a conversation from the sidebar to start messaging.</div>
+           <!-- Scroll to Bottom FAB — inside messages-area for proper sticky positioning -->
+           <button class="scroll-bottom-btn" id="btn-scroll-bottom" onclick="scrollToBottom()">↓</button>
         </div>
 
-        <div class="chat-input-area" id="chat-input-area" style="display: none;">
-          <input class="chat-input" type="text" id="message-input" placeholder="Type a message..." onkeypress="if(event.key === 'Enter') sendMessage();" />
-          <button class="send-btn" onclick="sendMessage()" title="Send">➤</button>
+        <div style="display: flex; flex-direction: column;">
+            <!-- Reply Bar -->
+            <div class="reply-bar" id="reply-bar" style="display: none;">
+                <div class="reply-bar-content">
+                    <div class="reply-bar-sender" id="reply-bar-sender">Sender Name</div>
+                    <div class="reply-bar-text" id="reply-bar-text">Message content preview...</div>
+                </div>
+                <button class="reply-bar-close" onclick="cancelReply()">✕</button>
+            </div>
+
+            <!-- File Preview Bar -->
+            <div class="file-preview-bar" id="file-preview-bar" style="display: none;">
+                <div style="font-size: 1.2rem;">📎</div>
+                <div class="file-preview-name" id="file-preview-name">filename.jpg (2.5MB)</div>
+                <button class="reply-bar-close" onclick="cancelAttachment()">✕</button>
+            </div>
+
+            <div class="chat-input-area" id="chat-input-area" style="display: none;">
+                <button class="attach-btn" onclick="document.getElementById('file-upload').click()" title="Attach File">📎</button>
+                <input type="file" id="file-upload" style="display: none;" onchange="handleFileSelect(event)">
+                <textarea class="chat-input" id="message-input" rows="1" placeholder="Type a message..." oninput="handleTyping()"></textarea>
+                <button class="send-btn" id="btn-send" onclick="sendMessage()" title="Send">🎤</button>
+            </div>
         </div>
       </main>
 
@@ -192,446 +236,7 @@
       </aside>
     </div>
 
-    <script>
-      let currentUser = null;
-      let currentConversation = null;
-      let lastMessageId = 0;
-      let pollInterval = null;
-      let conversationsList = [];
-
-      function escapeHTML(str) {
-        const p = document.createElement('p');
-        p.appendChild(document.createTextNode(str));
-        return p.innerHTML;
-      }
-
-      function formatTime(dateString) {
-        const d = new Date(dateString);
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      }
-
-      // ══════════════════════════════════════════
-      //  SESSION GUARD
-      // ══════════════════════════════════════════
-      (async function guardPage() {
-        try {
-          const res = await fetch("../api/check_auth.php");
-          const data = await res.json();
-
-          if (!data.authenticated) {
-            window.location.href = "auth.html";
-            return;
-          }
-
-          currentUser = data.user;
-          const initial = currentUser.first_name.charAt(0).toUpperCase();
-          const fullName = currentUser.first_name + " " + currentUser.last_name;
-          const roleLabel = (currentUser.role || "member").toUpperCase();
-
-          document.getElementById("user-avatar").textContent = initial;
-          document.getElementById("user-display-name").textContent = fullName;
-          document.getElementById("user-role-badge").textContent = roleLabel;
-          
-          document.getElementById("member-self-avatar").textContent = initial;
-          document.getElementById("member-self-name").textContent = fullName;
-
-          if (currentUser.role === 'admin') {
-              document.getElementById("btn-new-community").style.display = "inline-flex";
-              document.getElementById("community-requests-section").style.display = "block";
-          }
-
-          document.getElementById("auth-guard").style.display = "none";
-          document.getElementById("app-shell").style.display = "flex";
-
-          fetchConversations();
-          if (currentUser.role === 'admin') fetchCommunityRequests();
-          
-          // Start 3-second polling for conversations and requests
-          setInterval(() => {
-              fetchConversations();
-              if (currentUser.role === 'admin') fetchCommunityRequests();
-          }, 3000);
-
-        } catch (err) {
-          window.location.href = "auth.html";
-        }
-      })();
-
-      async function handleLogout() {
-        try {
-          const res = await fetch("../api/logout.php");
-          const data = await res.json();
-          if (data.success) window.location.href = "auth.html";
-        } catch (err) {
-          alert("Logout failed.");
-        }
-      }
-
-      // ══════════════════════════════════════════
-      //  CONVERSATIONS LOGIC
-      // ══════════════════════════════════════════
-      async function fetchConversations() {
-          try {
-              const res = await fetch("../api/chat/manage_conversations.php?action=get");
-              const data = await res.json();
-              if (data.success) {
-                  conversationsList = data.conversations;
-                  renderConversations();
-              }
-          } catch(e) { console.error(e); }
-      }
-
-      function renderConversations() {
-          const lists = {
-              'community': document.getElementById('list-communities'),
-              'group': document.getElementById('list-groups'),
-              'direct': document.getElementById('list-directs')
-          };
-          
-          Object.values(lists).forEach(el => el.innerHTML = '');
-
-          conversationsList.forEach(conv => {
-              const el = document.createElement('div');
-              el.className = `room-item ${currentConversation && currentConversation.id == conv.id ? 'active' : ''} ${conv.my_status === 'pending' ? 'pending' : ''}`;
-              
-              const isDirect = conv.type === 'direct';
-              const icon = isDirect ? '👤' : (conv.type === 'group' ? '👥' : '🌍');
-              const name = conv.name || 'Unknown';
-              
-              let statusText = '';
-              if (!conv.my_status && conv.type === 'community') statusText = 'Click to Join';
-              else if (conv.my_status === 'pending') statusText = 'Pending Approval';
-
-              el.innerHTML = `
-                <div class="room-avatar ${isDirect ? 'user-av' : ''}" style="background: linear-gradient(135deg, var(--blue), var(--blue-lt))">
-                  ${icon}
-                </div>
-                <div class="room-info">
-                  <div class="room-name">${escapeHTML(name)}</div>
-                  ${statusText ? `<div class="room-preview" style="color:#e74c3c;">${statusText}</div>` : ''}
-                </div>
-              `;
-
-              el.onclick = () => selectConversation(conv);
-              lists[conv.type].appendChild(el);
-          });
-      }
-
-      function selectConversation(conv) {
-          currentConversation = conv;
-          lastMessageId = 0;
-          renderConversations(); // update active state
-
-          const name = conv.name || 'Unknown';
-          const isDirect = conv.type === 'direct';
-          document.getElementById('chat-header-icon').textContent = isDirect ? '👤' : (conv.type === 'group' ? '👥' : '🌍');
-          document.getElementById('chat-header-name').textContent = name;
-          document.getElementById('chat-header-meta').textContent = conv.type.toUpperCase();
-
-          const container = document.getElementById('messages-container');
-          const inputArea = document.getElementById('chat-input-area');
-          const addUserBtn = document.getElementById('btn-add-user');
-          const memberCountBtn = document.getElementById('member-count-btn');
-
-          // Show member count for groups/communities, hide for DMs
-          if (!isDirect && conv.my_status === 'approved') {
-              memberCountBtn.style.display = 'inline-flex';
-              fetchMemberCount(conv.id);
-          } else {
-              memberCountBtn.style.display = 'none';
-          }
-
-          // Check permissions
-          if (conv.my_status === 'approved') {
-              inputArea.style.display = 'flex';
-              addUserBtn.style.display = (conv.my_role === 'admin' && !isDirect) ? 'inline-flex' : 'none';
-              
-              if (pollInterval) clearInterval(pollInterval);
-              fetchMessages(true);
-              pollInterval = setInterval(() => fetchMessages(), 3000);
-          } else {
-              inputArea.style.display = 'none';
-              addUserBtn.style.display = 'none';
-              memberCountBtn.style.display = 'none';
-              if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-
-              if (!conv.my_status && conv.type === 'community') {
-                  container.innerHTML = `
-                    <div class="disabled-state">
-                        <h2>Welcome to ${escapeHTML(name)}</h2>
-                        <p>This is a community. You must request to join to view messages.</p>
-                        <button class="chat-btn-join" onclick="requestJoin(${conv.id})">Request to Join</button>
-                    </div>
-                  `;
-              } else if (conv.my_status === 'pending') {
-                  container.innerHTML = `
-                    <div class="disabled-state">
-                        <h2>Join Request Pending</h2>
-                        <p>An admin must approve your request before you can participate.</p>
-                    </div>
-                  `;
-              }
-          }
-      }
-
-      async function requestJoin(convId) {
-          const formData = new FormData();
-          formData.append('action', 'request_join');
-          formData.append('conversation_id', convId);
-          try {
-              const res = await fetch('../api/chat/community_requests.php', { method: 'POST', body: formData });
-              const data = await res.json();
-              if (data.success) {
-                  fetchConversations();
-                  selectConversation({...currentConversation, my_status: 'pending'});
-              } else {
-                  alert(data.message);
-              }
-          } catch(e) { console.error(e); }
-      }
-
-      // ══════════════════════════════════════════
-      //  MESSAGES LOGIC
-      // ══════════════════════════════════════════
-      async function fetchMessages(initial = false) {
-          if (!currentConversation || currentConversation.my_status !== 'approved') return;
-
-          try {
-              const res = await fetch(`../api/chat/get_messages.php?conversation_id=${currentConversation.id}&last_message_id=${lastMessageId}`);
-              const data = await res.json();
-
-              if (data.success) {
-                  const container = document.getElementById('messages-container');
-                  if (initial) container.innerHTML = '';
-                  
-                  if (data.messages.length > 0) {
-                      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-
-                      data.messages.forEach(msg => {
-                          const isOwn = msg.sender_id == currentUser.id;
-                          const initialChar = msg.first_name.charAt(0).toUpperCase();
-                          const isAdmin = msg.sender_role === 'admin';
-                          const adminBadge = isAdmin ? '<span class="msg-admin-badge">Admin</span>' : '';
-                          const html = `
-                              <div class="msg-group ${isOwn ? 'own' : ''}">
-                                  <div class="msg-av" style="background: linear-gradient(135deg, ${isOwn ? '#1e3a5f, #2e75b6' : (isAdmin ? '#166534, #22c55e' : '#8b5cf6, #6d28d9')})">
-                                      ${initialChar}
-                                  </div>
-                                  <div class="msg-body">
-                                      ${!isOwn ? `<div class="msg-sender">${escapeHTML(msg.first_name + ' ' + msg.last_name)}${adminBadge}</div>` : ''}
-                                      <div class="msg-bubble">${escapeHTML(msg.content)}</div>
-                                      <div class="msg-time">${formatTime(msg.created_at)}</div>
-                                  </div>
-                              </div>
-                          `;
-                          container.insertAdjacentHTML('beforeend', html);
-                          lastMessageId = Math.max(lastMessageId, msg.id);
-                      });
-
-                      if (isNearBottom || initial) {
-                          container.scrollTop = container.scrollHeight;
-                      }
-                  } else if (initial) {
-                      container.innerHTML = `<div class="disabled-state">No messages yet. Start the conversation!</div>`;
-                  }
-              }
-          } catch (e) { console.error(e); }
-      }
-
-      async function sendMessage() {
-          const input = document.getElementById('message-input');
-          const content = input.value.trim();
-          if (!content || !currentConversation || currentConversation.my_status !== 'approved') return;
-
-          input.value = '';
-          const formData = new FormData();
-          formData.append('conversation_id', currentConversation.id);
-          formData.append('content', content);
-
-          try {
-              await fetch('../api/chat/send_message.php', { method: 'POST', body: formData });
-              fetchMessages();
-          } catch(e) { console.error(e); }
-      }
-
-      // ══════════════════════════════════════════
-      //  MODALS & ACTIONS
-      // ══════════════════════════════════════════
-      let currentAction = null;
-      function openActionModal(action) {
-          currentAction = action;
-          const modal = document.getElementById('action-modal');
-          const title = document.getElementById('modal-title');
-          const input = document.getElementById('modal-input');
-          
-          input.value = '';
-          modal.style.display = 'flex';
-
-          if (action === 'direct') {
-              title.textContent = 'New Direct Message';
-              input.placeholder = 'Enter exact username or email';
-          } else if (action === 'group') {
-              title.textContent = 'Create New Group';
-              input.placeholder = 'Enter group name';
-          } else if (action === 'community') {
-              title.textContent = 'Create New Community';
-              input.placeholder = 'Enter community name';
-          } else if (action === 'add_user') {
-              title.textContent = 'Add User to ' + escapeHTML(currentConversation.name);
-              input.placeholder = 'Enter exact username or email';
-          }
-      }
-
-      function closeModal() {
-          document.getElementById('action-modal').style.display = 'none';
-          currentAction = null;
-      }
-
-      document.getElementById('modal-submit').onclick = async () => {
-          const val = document.getElementById('modal-input').value.trim();
-          if (!val) return;
-
-          const formData = new FormData();
-          let endpoint = '../api/chat/manage_conversations.php';
-          
-          if (currentAction === 'direct') {
-              formData.append('action', 'create_direct');
-              formData.append('target_username', val);
-          } else if (currentAction === 'group') {
-              formData.append('action', 'create_group');
-              formData.append('name', val);
-          } else if (currentAction === 'community') {
-              formData.append('action', 'create_community');
-              formData.append('name', val);
-          } else if (currentAction === 'add_user') {
-              formData.append('action', 'add_user');
-              formData.append('conversation_id', currentConversation.id);
-              formData.append('target_username', val);
-          }
-
-          try {
-              const res = await fetch(endpoint, { method: 'POST', body: formData });
-              const data = await res.json();
-              
-              if (data.success) {
-                  closeModal();
-                  fetchConversations();
-                  if (data.message) alert(data.message);
-              } else {
-                  alert(data.message);
-              }
-          } catch(e) { alert('An error occurred'); }
-      };
-
-      // ══════════════════════════════════════════
-      //  COMMUNITY REQUESTS (Admins)
-      // ══════════════════════════════════════════
-      async function fetchCommunityRequests() {
-          try {
-              const res = await fetch('../api/chat/community_requests.php?action=get_requests');
-              const data = await res.json();
-              if (data.success) {
-                  const list = document.getElementById('requests-list');
-                  list.innerHTML = '';
-                  
-                  if (data.requests.length === 0) {
-                      list.innerHTML = '<div style="color:var(--muted); font-size: 0.8rem;">No pending requests</div>';
-                      return;
-                  }
-
-                  data.requests.forEach(req => {
-                      const div = document.createElement('div');
-                      div.className = 'request-item';
-                      div.innerHTML = `
-                          <div style="font-size: 0.8rem; font-weight: bold; color: #e2e8f0;">${escapeHTML(req.first_name + ' ' + req.last_name)}</div>
-                          <div style="font-size: 0.7rem; color: var(--muted); margin-bottom: 5px;">Wants to join ${escapeHTML(req.community_name)}</div>
-                          <div class="request-actions">
-                              <button class="btn-approve" onclick="handleRequest(${req.conversation_id}, ${req.user_id}, 'approved')">Approve</button>
-                              <button class="btn-reject" onclick="handleRequest(${req.conversation_id}, ${req.user_id}, 'rejected')">Reject</button>
-                          </div>
-                      `;
-                      list.appendChild(div);
-                  });
-              }
-          } catch(e) { console.error(e); }
-      }
-
-      async function handleRequest(convId, userId, status) {
-          const formData = new FormData();
-          formData.append('action', 'handle_request');
-          formData.append('conversation_id', convId);
-          formData.append('target_user_id', userId);
-          formData.append('status', status);
-
-          try {
-              const res = await fetch('../api/chat/community_requests.php', { method: 'POST', body: formData });
-              const data = await res.json();
-              if (data.success) fetchCommunityRequests();
-          } catch(e) { console.error(e); }
-      }
-
-      // ══════════════════════════════════════════
-      //  MEMBER COUNT & LIST
-      // ══════════════════════════════════════════
-      async function fetchMemberCount(convId) {
-          try {
-              const res = await fetch(`../api/chat/get_participants.php?conversation_id=${convId}`);
-              const data = await res.json();
-              if (data.success) {
-                  document.getElementById('member-count-text').textContent = data.count + ' member' + (data.count !== 1 ? 's' : '');
-              }
-          } catch(e) { console.error(e); }
-      }
-
-      async function openMembersModal() {
-          if (!currentConversation) return;
-          const modal = document.getElementById('members-modal');
-          const list = document.getElementById('members-modal-list');
-          const title = document.getElementById('members-modal-title');
-          const countTag = document.getElementById('members-modal-count');
-
-          title.textContent = escapeHTML(currentConversation.name || 'Members');
-          list.innerHTML = '<div style="text-align:center;color:#64748b;padding:20px;">Loading...</div>';
-          modal.style.display = 'flex';
-
-          try {
-              const res = await fetch(`../api/chat/get_participants.php?conversation_id=${currentConversation.id}`);
-              const data = await res.json();
-              if (data.success) {
-                  countTag.textContent = data.count;
-                  list.innerHTML = '';
-                  data.participants.forEach(p => {
-                      const initial = p.first_name.charAt(0).toUpperCase();
-                      const gradients = { admin: '#166534, #22c55e', moderator: '#6d28d9, #a78bfa', member: '#1e3a5f, #2e75b6' };
-                      const grad = gradients[p.system_role] || gradients.member;
-
-                      let badges = '';
-                      if (p.system_role === 'admin') badges += '<span class="member-badge-system admin">Admin</span>';
-                      else if (p.system_role === 'moderator') badges += '<span class="member-badge-system moderator">Mod</span>';
-                      if (p.chat_role === 'admin') badges += '<span class="member-badge-chat">Owner</span>';
-
-                      list.innerHTML += `
-                        <div class="members-modal-item">
-                          <div class="members-modal-av" style="background:linear-gradient(135deg,${grad})">${initial}</div>
-                          <div class="members-modal-info">
-                            <div class="members-modal-name">${escapeHTML(p.first_name + ' ' + p.last_name)}</div>
-                            <div class="members-modal-username">@${escapeHTML(p.username)}</div>
-                          </div>
-                          <div class="members-modal-badges">${badges}</div>
-                        </div>
-                      `;
-                  });
-              } else {
-                  list.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:20px;">Failed to load members.</div>';
-              }
-          } catch(e) {
-              list.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:20px;">Network error.</div>';
-          }
-      }
-
-      function closeMembersModal() {
-          document.getElementById('members-modal').style.display = 'none';
-      }
-    </script>
+    <!-- Scripts -->
+    <script src="dashboard.js"></script>
   </body>
 </html>

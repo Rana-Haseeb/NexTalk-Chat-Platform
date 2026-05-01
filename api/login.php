@@ -55,6 +55,9 @@ if (!password_verify($password, $user["password"])) {
 $role = nex_normalize_role($user["role"] ?? NEX_ROLE_MEMBER);
 $permissions = nex_role_permissions($role);
 
+// ── Set online status ──
+$pdo->prepare("UPDATE users SET is_online = 1, last_seen_at = NOW() WHERE id = ?")->execute([$user["id"]]);
+
 // ── Create session ──
 $_SESSION["user_id"]    = $user["id"];
 $_SESSION["username"]   = $user["username"] ?? "";

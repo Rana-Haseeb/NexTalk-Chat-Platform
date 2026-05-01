@@ -1,7 +1,7 @@
 <?php
 // ==============================================
 // NexTalk — Get Participants API
-// Returns members list for a given conversation
+// Returns members list with online/last seen status
 // ==============================================
 session_start();
 header("Content-Type: application/json");
@@ -34,19 +34,22 @@ try {
         exit;
     }
 
-    // Fetch all approved participants with their user info and participant role
+    // Fetch all approved participants with their user info, participant role, and online status
     $stmt = $pdo->prepare("
         SELECT u.id AS user_id,
                u.first_name,
                u.last_name,
                u.username,
                u.role        AS system_role,
+               u.is_online,
+               u.last_seen_at,
                p.role        AS chat_role,
                p.joined_at
         FROM participants p
         JOIN users u ON p.user_id = u.id
         WHERE p.conversation_id = ? AND p.status = 'approved'
         ORDER BY
+            u.is_online DESC,
             FIELD(p.role, 'admin', 'member'),
             u.first_name ASC
     ");
@@ -56,9 +59,16 @@ try {
     // Total count (approved only)
     $count = count($participants);
 
+    // Online count
+    $online_count = 0;
+    foreach ($participants as $p) {
+        if ($p['is_online']) $online_count++;
+    }
+
     echo json_encode([
         "success"      => true,
         "count"        => $count,
+        "online_count" => $online_count,
         "participants" => $participants
     ]);
 } catch (Exception $e) {

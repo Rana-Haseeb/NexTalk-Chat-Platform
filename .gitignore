@@ -1,3 +1,13 @@
+# Project files to exclude
+code.txt
+*.pdf
+*.txt
+!README.md
+
+# User uploads (keep .htaccess for security)
+uploads/*
+!uploads/.htaccess
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -11,3 +21,6 @@ desktop.ini
 
 # Logs
 *.log
+
+# Dependencies
+node_modules/

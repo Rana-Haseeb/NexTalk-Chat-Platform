@@ -1788,3 +1788,287 @@ footer span {
   border: 1px solid rgba(96,180,255,0.25);
   color: #a7d4ff;
 }
+
+/* =============================================
+   WHATSAPP FEATURES — Message Ticks
+   ============================================= */
+.msg-ticks { display:inline-flex; margin-left:4px; font-size:0.7rem; vertical-align:middle; }
+.msg-ticks.sent { color:#94a3b8; }
+.msg-ticks.delivered { color:#94a3b8; }
+.msg-ticks.read { color:#53bdeb; }
+
+/* =============================================
+   WHATSAPP FEATURES — Media in Messages
+   ============================================= */
+.msg-media { margin-bottom:6px; max-width:280px; border-radius:10px; overflow:hidden; }
+.msg-media img { width:100%; display:block; cursor:pointer; transition:transform 0.2s; }
+.msg-media img:hover { transform:scale(1.02); }
+.msg-media-doc {
+  display:flex; align-items:center; gap:10px;
+  padding:10px 14px; background:rgba(0,0,0,0.06);
+  border-radius:10px; cursor:pointer; transition:background 0.2s;
+}
+.msg-media-doc:hover { background:rgba(0,0,0,0.1); }
+.msg-media-doc .doc-icon { font-size:1.4rem; }
+.msg-media-doc .doc-name { font-size:0.82rem; color:var(--navy); font-weight:600; word-break:break-all; }
+.msg-group.own .msg-media-doc .doc-name { color:#e2e8f0; }
+.msg-group.own .msg-media-doc { background:rgba(255,255,255,0.1); }
+.msg-media audio { width:100%; max-width:260px; height:36px; }
+
+/* =============================================
+   WHATSAPP FEATURES — Reply Quote
+   ============================================= */
+.msg-reply-quote {
+  background:rgba(46,117,182,0.1); border-left:3px solid var(--blue);
+  border-radius:6px; padding:6px 10px; margin-bottom:4px;
+  font-size:0.78rem; cursor:pointer;
+}
+.msg-reply-quote .reply-sender { font-weight:700; color:var(--blue); margin-bottom:2px; }
+.msg-reply-quote .reply-text { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px; }
+.msg-group.own .msg-reply-quote { background:rgba(255,255,255,0.1); border-left-color:#60b4ff; }
+.msg-group.own .msg-reply-quote .reply-sender { color:#60b4ff; }
+.msg-group.own .msg-reply-quote .reply-text { color:rgba(255,255,255,0.7); }
+
+/* Forwarded label */
+.msg-forwarded { font-size:0.7rem; color:var(--muted); font-style:italic; margin-bottom:2px; display:flex; align-items:center; gap:3px; }
+.msg-group.own .msg-forwarded { color:rgba(255,255,255,0.6); }
+
+/* =============================================
+   WHATSAPP FEATURES — Context Menu
+   ============================================= */
+.msg-context-menu {
+  position:absolute; z-index:9999;
+  background:#1b2b3a; border:1px solid rgba(255,255,255,0.12);
+  border-radius:10px; padding:6px 0; min-width:160px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.5); animation:modalIn 0.15s ease-out;
+}
+.msg-context-item {
+  padding:8px 16px; font-size:0.82rem; color:#cbd5e1;
+  cursor:pointer; display:flex; align-items:center; gap:8px;
+  transition:background 0.12s;
+}
+.msg-context-item:hover { background:rgba(255,255,255,0.08); }
+.msg-context-item.danger { color:#e74c3c; }
+.msg-context-item.danger:hover { background:rgba(231,76,60,0.15); }
+
+/* =============================================
+   WHATSAPP FEATURES — Reply Bar
+   ============================================= */
+.reply-bar {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 16px; background:var(--card); border-top:1px solid var(--border);
+  animation:slideUp 0.2s ease-out;
+}
+@keyframes slideUp { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
+.reply-bar-content {
+  flex:1; background:rgba(46,117,182,0.08);
+  border-left:3px solid var(--blue); border-radius:6px; padding:6px 10px;
+}
+.reply-bar-sender { font-size:0.75rem; font-weight:700; color:var(--blue); }
+.reply-bar-text { font-size:0.8rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.reply-bar-close {
+  width:28px; height:28px; border-radius:50%; border:none;
+  background:rgba(0,0,0,0.06); color:var(--muted); font-size:0.9rem;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.reply-bar-close:hover { background:rgba(231,76,60,0.15); color:#e74c3c; }
+
+/* =============================================
+   WHATSAPP FEATURES — Typing Indicator
+   ============================================= */
+.typing-bar {
+  padding:0 24px; font-size:0.78rem; color:var(--online);
+  min-height:20px; transition:opacity 0.2s;
+}
+
+/* =============================================
+   WHATSAPP FEATURES — Online Status
+   ============================================= */
+.online-status-dot {
+  width:8px; height:8px; border-radius:50%; display:inline-block;
+  margin-right:4px; vertical-align:middle;
+}
+.online-status-dot.online { background:var(--online); box-shadow:0 0 6px rgba(34,197,94,0.5); }
+.online-status-dot.offline { background:#64748b; }
+.chat-header-status { font-size:0.75rem; color:var(--online); }
+.chat-header-status.offline { color:var(--muted); }
+
+/* =============================================
+   WHATSAPP FEATURES — Attachment & Input
+   ============================================= */
+.attach-btn {
+  width:38px; height:38px; border-radius:10px; border:1.5px solid var(--border);
+  background:var(--bg); color:var(--muted); font-size:1.1rem;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+  transition:all 0.15s; flex-shrink:0;
+}
+.attach-btn:hover { background:var(--card); color:var(--blue); border-color:var(--blue); }
+.file-preview-bar {
+  display:flex; align-items:center; gap:8px; padding:6px 16px;
+  background:var(--card); border-top:1px solid var(--border);
+  font-size:0.8rem; color:var(--muted);
+}
+.file-preview-bar .file-preview-name { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* =============================================
+   WHATSAPP FEATURES — Forward Modal
+   ============================================= */
+.forward-modal-list { max-height:300px; overflow-y:auto; }
+.forward-conv-item {
+  display:flex; align-items:center; gap:10px; padding:10px 12px;
+  cursor:pointer; border-radius:8px; transition:background 0.12s;
+}
+.forward-conv-item:hover { background:rgba(255,255,255,0.06); }
+.forward-conv-icon {
+  width:36px; height:36px; border-radius:10px;
+  background:linear-gradient(135deg, var(--blue), var(--blue-lt));
+  display:flex; align-items:center; justify-content:center; font-size:0.9rem; flex-shrink:0;
+}
+.forward-conv-name { font-size:0.88rem; color:#e2e8f0; font-weight:600; }
+
+/* =============================================
+   WHATSAPP FEATURES — Search Bar in Sidebar
+   ============================================= */
+.sidebar-search-box {
+  padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.07);
+}
+.sidebar-search-input {
+  width:100%; padding:8px 12px 8px 32px;
+  background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.1);
+  border-radius:8px; color:#cbd5e1; font-size:0.82rem;
+  outline:none; font-family:var(--font);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%234a6178' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:10px center;
+}
+.sidebar-search-input::placeholder { color:#4a6178; }
+.sidebar-search-input:focus { border-color:rgba(46,117,182,0.5); background-color:rgba(255,255,255,0.1); }
+
+/* Unread badge on sidebar items */
+.room-unread {
+  background:var(--online); color:#fff; font-size:0.68rem; font-weight:700;
+  padding:1px 7px; border-radius:999px; min-width:18px; text-align:center;
+}
+
+/* Chat header action buttons */
+.chat-header-actions { display:flex; gap:6px; }
+.chat-action-btn {
+  padding:6px 12px; border-radius:8px; border:1px solid var(--border);
+  background:var(--card); font-size:0.75rem; font-weight:600;
+  color:var(--muted); cursor:pointer; transition:all 0.15s;
+}
+.chat-action-btn:hover { background:var(--bg); color:var(--navy); }
+.chat-action-btn.danger { color:#e74c3c; border-color:rgba(231,76,60,0.3); }
+.chat-action-btn.danger:hover { background:rgba(231,76,60,0.1); }
+
+/* Image lightbox */
+.lightbox-overlay {
+  position:fixed; inset:0; z-index:20000;
+  background:rgba(0,0,0,0.9); display:flex;
+  align-items:center; justify-content:center;
+  cursor:pointer; animation:fadeIn 0.2s;
+}
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+.lightbox-overlay img { max-width:90vw; max-height:90vh; border-radius:8px; }
+
+/* =============================================
+   WHATSAPP FEATURES — Message Clustering
+   ============================================= */
+/* Reduce gap between clustered messages */
+.msg-row.clustered { margin-top: -4px; }
+
+/* --- Other users (left side) ---
+   Base bubble radius: 16px 16px 16px 4px (bottom-left is the "tail")
+   cluster-start: flatten bottom-left (remove tail, next msg continues)
+   cluster-mid:   flatten top-left AND bottom-left (both sides stitched)
+   cluster-end:   flatten top-left (stitched to previous), restore tail */
+.msg-group:not(.own).cluster-start .msg-bubble { border-bottom-left-radius: 4px; }
+.msg-group:not(.own).cluster-mid .msg-bubble   { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+.msg-group:not(.own).cluster-end .msg-bubble   { border-top-left-radius: 4px; }
+
+/* --- Own messages (right side) ---
+   Base bubble radius: 16px 16px 4px 16px (bottom-right is the "tail")
+   cluster-start: flatten bottom-right (remove tail, next msg continues)
+   cluster-mid:   flatten top-right AND bottom-right (both sides stitched)
+   cluster-end:   flatten top-right (stitched to previous), restore tail */
+.msg-group.own.cluster-start .msg-bubble { border-bottom-right-radius: 4px; }
+.msg-group.own.cluster-mid .msg-bubble   { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+.msg-group.own.cluster-end .msg-bubble   { border-top-right-radius: 4px; }
+
+/* =============================================
+   WHATSAPP FEATURES — Multi-line Textarea
+   ============================================= */
+textarea.chat-input {
+  resize: none;
+  overflow-y: auto;
+  min-height: 42px;
+  max-height: 120px;
+  line-height: 1.4;
+}
+
+/* =============================================
+   WHATSAPP FEATURES — Scroll to Bottom FAB
+   ============================================= */
+/* Anchor inside .messages-area so textarea growth doesn't affect it */
+.messages-area { position: relative; }
+.scroll-bottom-btn {
+  position: sticky;
+  bottom: 12px;
+  float: right;
+  margin-right: 12px;
+  margin-top: -52px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 100;
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.scroll-bottom-btn.visible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.scroll-bottom-btn:hover {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+
+/* =============================================
+   WHATSAPP FEATURES — Date Divider Pills
+   ============================================= */
+.msg-date-divider {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0;
+}
+.msg-date-divider span {
+  background: rgba(0,0,0,0.06);
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+/* =============================================
+   WHATSAPP FEATURES — Typing in Header
+   ============================================= */
+.chat-header-status.typing {
+  color: var(--online);
+  font-style: italic;
+}
