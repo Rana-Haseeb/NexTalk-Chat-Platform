@@ -620,6 +620,8 @@ footer span {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
 }
 .room-preview {
   font-size: 0.78rem;
@@ -627,6 +629,8 @@ footer span {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
 }
 .room-meta {
   display: flex;
@@ -771,6 +775,8 @@ footer span {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  background-color: #efeae2;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cdefs%3E%3Cpattern id='p' width='40' height='40' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM6 18a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm28 4a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM14 32a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z' fill='%23d5cfc3' fill-opacity='0.45'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='200' height='200' fill='url(%23p)'/%3E%3C/svg%3E");
 }
 .msg-group {
   display: flex;
@@ -779,18 +785,6 @@ footer span {
 }
 .msg-group.own {
   flex-direction: row-reverse;
-}
-.msg-av {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.85rem;
-  font-weight: 700;
-  flex-shrink: 0;
-  color: #fff;
 }
 .msg-body {
   max-width: 65%;
@@ -808,6 +802,7 @@ footer span {
   padding: 0 4px;
 }
 .msg-bubble {
+  position: relative;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 16px 16px 16px 4px;
@@ -822,10 +817,50 @@ footer span {
   border: none;
   border-radius: 16px 16px 4px 16px;
 }
+.msg-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .msg-time {
   font-size: 0.72rem;
   color: var(--muted);
   padding: 0 4px;
+}
+
+/* WhatsApp-style hover menu arrow */
+.msg-menu-btn {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: #667781;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  z-index: 2;
+  line-height: 1;
+}
+.msg-bubble:hover .msg-menu-btn {
+  opacity: 1;
+}
+.msg-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+/* Own bubble: darker background for contrast */
+.msg-group.own .msg-menu-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.85);
+}
+.msg-group.own .msg-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 /* Typing indicator */
@@ -909,6 +944,13 @@ footer span {
 .send-btn:hover {
   background: var(--navy);
   transform: scale(1.05);
+}
+.send-btn:active {
+  transform: scale(0.95);
+}
+.send-btn.sending {
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 /* Right Panel */
@@ -1788,6 +1830,27 @@ footer span {
   border: 1px solid rgba(96,180,255,0.25);
   color: #a7d4ff;
 }
+.member-remove-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid rgba(231,76,60,0.3);
+  background: rgba(231,76,60,0.1);
+  color: #e74c3c;
+  font-size: 0.7rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.member-remove-btn:hover {
+  background: rgba(231,76,60,0.3);
+  border-color: rgba(231,76,60,0.5);
+  transform: scale(1.1);
+}
 
 /* =============================================
    WHATSAPP FEATURES — Message Ticks
@@ -1796,6 +1859,10 @@ footer span {
 .msg-ticks.sent { color:#94a3b8; }
 .msg-ticks.delivered { color:#94a3b8; }
 .msg-ticks.read { color:#53bdeb; }
+/* High-contrast ticks inside own (dark blue) bubbles */
+.msg-group.own .msg-ticks.sent,
+.msg-group.own .msg-ticks.delivered { color: rgba(255, 255, 255, 0.6); }
+.msg-group.own .msg-ticks.read { color: #38bdf8; }
 
 /* =============================================
    WHATSAPP FEATURES — Media in Messages
@@ -1813,7 +1880,19 @@ footer span {
 .msg-media-doc .doc-name { font-size:0.82rem; color:var(--navy); font-weight:600; word-break:break-all; }
 .msg-group.own .msg-media-doc .doc-name { color:#e2e8f0; }
 .msg-group.own .msg-media-doc { background:rgba(255,255,255,0.1); }
-.msg-media audio { width:100%; max-width:260px; height:36px; }
+.msg-media audio {
+  width: 100%;
+  max-width: 260px;
+  height: 36px;
+  outline: none;
+  border: none;
+  border-radius: 8px;
+  margin: 4px 0;
+  filter: sepia(20%) hue-rotate(190deg) saturate(500%) brightness(0.95);
+}
+.msg-group.own .msg-media audio {
+  filter: sepia(20%) hue-rotate(190deg) saturate(400%) brightness(1.2);
+}
 
 /* =============================================
    WHATSAPP FEATURES — Reply Quote
@@ -1830,7 +1909,8 @@ footer span {
 .msg-group.own .msg-reply-quote .reply-text { color:rgba(255,255,255,0.7); }
 
 /* Forwarded label */
-.msg-forwarded { font-size:0.7rem; color:var(--muted); font-style:italic; margin-bottom:2px; display:flex; align-items:center; gap:3px; }
+.msg-forwarded { font-size:0.7rem; color:var(--muted); font-style:italic; font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:4px; }
+.msg-forwarded::first-letter { font-style:normal; }
 .msg-group.own .msg-forwarded { color:rgba(255,255,255,0.6); }
 
 /* =============================================
@@ -2051,7 +2131,7 @@ textarea.chat-input {
 .msg-date-divider {
   display: flex;
   justify-content: center;
-  margin: 12px 0;
+  margin: 20px 0;
 }
 .msg-date-divider span {
   background: rgba(0,0,0,0.06);

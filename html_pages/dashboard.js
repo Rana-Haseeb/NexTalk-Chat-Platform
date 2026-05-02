@@ -3,6 +3,22 @@
 // Implements SSE, WhatsApp Features, DOM Diffing
 // ==============================================
 
+// ─── Helpers ───
+function escapeHTML(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function updateSendButtonState() {
+    const input = document.getElementById('message-input');
+    const sendBtn = document.getElementById('btn-send');
+    if (sendBtn) {
+        sendBtn.textContent = (input.value.trim() || appState.attachedFile) ? '➤' : '🎤';
+    }
+}
+
 // App State
 let appState = {
     user: null,
@@ -82,8 +98,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Cancel inline UI
                 cancelReply();
                 cancelAttachment();
+                // Restore focus for accessibility
+                document.getElementById('message-input')?.focus();
             }
         });
+
+        // Audio mutex via event delegation (prevents listener leak on re-render)
+        document.getElementById('messages-container').addEventListener('play', (e) => {
+            if (e.target.tagName === 'AUDIO') {
+                document.querySelectorAll('audio').forEach(audio => {
+                    if (audio !== e.target) audio.pause();
+                });
+            }
+        }, true);
 
     } catch (e) {
         console.error("Auth check failed:", e);
@@ -169,6 +196,23 @@ function initSSE() {
         }
     });
 
+    // Real-time deletion sync
+    appState.sseSource.addEventListener('deletions', (e) => {
+        const deletedIds = JSON.parse(e.data);
+        if (!deletedIds.length) return;
+        let changed = false;
+        deletedIds.forEach(id => {
+            const msg = appState.messages.find(m => m.id === id);
+            if (msg && !msg.deleted_for_all) {
+                msg.deleted_for_all = 1;
+                msg.content = null;
+                msg.media_url = null;
+                changed = true;
+            }
+        });
+        if (changed) renderMessages(false);
+    });
+
     appState.sseSource.addEventListener('reconnect', () => {
         appState.sseSource.close();
         setTimeout(initSSE, 1000);
@@ -206,13 +250,28 @@ function formatSidebarTime(dateStr) {
     return d.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' });
 }
 
+// Helper: human-friendly date divider labels
+function formatDividerDate(dateString) {
+    const d = new Date(dateString);
+    const now = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(now.getDate() - 1);
+
+    if (d.toDateString() === now.toDateString()) return 'TODAY';
+    if (d.toDateString() === yesterday.toDateString()) return 'YESTERDAY';
+    return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
 function renderConversations() {
     const coms = [], grps = [], dirs = [];
     const searchTerm = document.getElementById('sidebar-search').value.toLowerCase();
+    let totalUnread = 0;
 
     appState.conversations.forEach(c => {
         // Filter by search
         if (searchTerm && !c.name.toLowerCase().includes(searchTerm)) return;
+
+        totalUnread += parseInt(c.unread_count) || 0;
 
         let icon, title = c.name;
         if (c.type === 'community') { icon = '🌍'; coms.push(c); }
@@ -226,8 +285,8 @@ function renderConversations() {
                  onclick="selectConversation(${c.id})" data-conv-id="${c.id}">
                 <div class="room-icon">${icon}</div>
                 <div class="room-info">
-                    <div class="room-name">${title}</div>
-                    <div class="room-preview">${c.last_message_preview || (c.my_status === 'pending' ? '<i>Pending Approval</i>' : '<i>No messages yet</i>')}</div>
+                    <div class="room-name">${escapeHTML(title)}</div>
+                    <div class="room-preview">${c.last_message_preview ? escapeHTML(c.last_message_preview) : (c.my_status === 'pending' ? '<i>Pending Approval</i>' : '<i>No messages yet</i>')}</div>
                 </div>
                 <div class="room-meta">
                     ${timeStr ? `<div class="room-time">${timeStr}</div>` : ''}
@@ -241,6 +300,9 @@ function renderConversations() {
     updateListHTML('list-communities', coms, 'hdr-communities');
     updateListHTML('list-groups', grps, 'hdr-groups');
     updateListHTML('list-directs', dirs, 'hdr-directs');
+
+    // Dynamic browser tab notification
+    document.title = totalUnread > 0 ? `(${totalUnread}) NexTalk` : 'NexTalk — Dashboard';
 }
 
 function updateListHTML(containerId, items, headerId) {
@@ -298,6 +360,7 @@ async function selectConversation(id) {
 
     const conv = appState.conversations.find(c => c.id == id);
     if (!conv) return;
+    conv.unread_count = 0; // Prevent SSE heartbeat from ghosting the badge back
 
     // Update Header
     const hdrName = document.getElementById('chat-header-name');
@@ -396,6 +459,11 @@ async function selectConversation(id) {
         if (badge) badge.remove();
     }
 
+    // Reset input state to prevent draft bleed between conversations
+    const input = document.getElementById('message-input');
+    if (input) { input.value = ''; input.style.height = '42px'; }
+    updateSendButtonState();
+
     // Restart SSE to focus on this conversation
     initSSE();
 }
@@ -425,6 +493,9 @@ function renderMessages(forceScroll = false) {
         return;
     }
 
+    // WhatsApp-style sender name colors (no avatar circles in chat — WhatsApp Web style)
+    const senderColors = ['#25D366', '#7C3AED', '#E67E22', '#2563EB', '#E91E63', '#00ACC1'];
+
     let html = '';
     let lastDate = '';
     let prevMsg = null;
@@ -436,7 +507,7 @@ function renderMessages(forceScroll = false) {
         
         // Date separator
         if (msgDate !== lastDate) {
-            html += `<div class="msg-date-divider"><span>${msgDate}</span></div>`;
+            html += `<div class="msg-date-divider"><span>${formatDividerDate(msg.created_at)}</span></div>`;
             lastDate = msgDate;
             prevMsg = null; // reset clustering on date change
         }
@@ -471,7 +542,7 @@ function renderMessages(forceScroll = false) {
         let mediaHtml = '';
         if (msg.media_url && !msg.deleted_for_all) {
             if (msg.media_type === 'image') {
-                mediaHtml = `<div class="msg-media"><img src="../${msg.media_url}" onclick="openLightbox('../${msg.media_url}')" alt="Attachment"></div>`;
+                mediaHtml = `<div class="msg-media"><img src="../${msg.media_url}" onload="handleImageLoad()" onclick="openLightbox('../${msg.media_url}')" alt="Attachment"></div>`;
             } else if (msg.media_type === 'video') {
                 mediaHtml = `<div class="msg-media"><video src="../${msg.media_url}" controls></video></div>`;
             } else if (msg.media_type === 'audio') {
@@ -490,8 +561,8 @@ function renderMessages(forceScroll = false) {
         if (msg.reply_to_id && msg.reply_content && !msg.deleted_for_all) {
             replyHtml = `
                 <div class="msg-reply-quote" onclick="scrollToMessage(${msg.reply_to_id})">
-                    <div class="reply-sender">${msg.reply_sender_id == appState.user.id ? 'You' : msg.reply_sender_name}</div>
-                    <div class="reply-text">${msg.reply_content}</div>
+                    <div class="reply-sender">${msg.reply_sender_id == appState.user.id ? 'You' : escapeHTML(msg.reply_sender_name)}</div>
+                    <div class="reply-text">${escapeHTML(msg.reply_content)}</div>
                 </div>`;
         }
 
@@ -508,14 +579,14 @@ function renderMessages(forceScroll = false) {
             ticksHtml = `<span class="msg-ticks ${msg.status}">${tickIcon}</span>`;
         }
 
-        const contentHtml = msg.deleted_for_all ? `<i style="color:var(--muted)">🚫 This message was deleted</i>` : (msg.content || '');
+        const contentHtml = msg.deleted_for_all ? `<i style="color:var(--muted)">🚫 This message was deleted</i>` : escapeHTML(msg.content);
 
         html += `
             <div class="msg-row ${isOwn ? 'own' : ''} ${clusterClass} ${isClustered ? 'clustered' : ''}" id="msg-${msg.id}">
-                ${!isOwn ? `<div class="msg-avatar" ${isClustered ? 'style="visibility:hidden"' : ''}>${msg.first_name.charAt(0)}</div>` : ''}
-                <div class="msg-group ${isOwn ? 'own' : ''} ${clusterClass}" oncontextmenu="showContextMenu(event, ${msg.id}, ${isOwn}, ${msg.deleted_for_all})">
-                    ${showSenderInfo ? `<div class="msg-sender">${msg.first_name} ${msg.last_name} ${badgeHtml}</div>` : ''}
+                <div class="msg-group ${isOwn ? 'own' : ''} ${clusterClass}">
+                    ${showSenderInfo ? `<div class="msg-sender" style="color: ${senderColors[msg.sender_id % senderColors.length]}">${msg.first_name} ${msg.last_name} ${badgeHtml}</div>` : ''}
                     <div class="msg-bubble">
+                        ${!msg.deleted_for_all ? `<div class="msg-menu-btn" onclick="showContextMenu(event, ${msg.id}, ${isOwn}, ${msg.deleted_for_all})">⌄</div>` : ''}
                         ${forwardHtml}
                         ${replyHtml}
                         ${mediaHtml}
@@ -531,14 +602,7 @@ function renderMessages(forceScroll = false) {
 
     container.innerHTML = html;
 
-    // ── Audio Mutex: pause all other audio when one plays ──
-    container.querySelectorAll('audio').forEach(audio => {
-        audio.addEventListener('play', () => {
-            container.querySelectorAll('audio').forEach(other => {
-                if (other !== audio) other.pause();
-            });
-        });
-    });
+    // Audio mutex handled by delegated listener in DOMContentLoaded
 
     // Scroll handling
     if (forceScroll || (!appState.isScrolledUp && wasScrolledToBottom)) {
@@ -564,7 +628,13 @@ function handleScroll() {
 
 function scrollToBottom() {
     const container = document.getElementById('messages-container');
-    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    setTimeout(() => {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    }, 50);
+}
+
+function handleImageLoad() {
+    if (!appState.isScrolledUp) scrollToBottom();
 }
 
 // ─── Input & Sending ───
@@ -595,20 +665,35 @@ function handleFileSelect(event) {
     }
 
     previewBar.style.display = 'flex';
+    updateSendButtonState();
+    document.getElementById('message-input')?.focus();
 }
 
 function cancelAttachment() {
     appState.attachedFile = null;
     document.getElementById('file-upload').value = '';
     document.getElementById('file-preview-bar').style.display = 'none';
+    updateSendButtonState();
+    document.getElementById('message-input')?.focus();
 }
 
 async function sendMessage() {
     const input = document.getElementById('message-input');
     const content = input.value.trim();
     
+    // Guard: bail before any UI side-effects
     if (!content && !appState.attachedFile) return;
     if (!appState.activeConvId) return;
+
+    // Visual feedback: briefly pulse the send button
+    const sendBtn = document.getElementById('btn-send');
+    if (sendBtn) {
+        sendBtn.classList.add('sending');
+        setTimeout(() => sendBtn.classList.remove('sending'), 150);
+    }
+
+    // Disable send button to prevent double-send
+    if (sendBtn) sendBtn.disabled = true;
 
     const formData = new FormData();
     formData.append('conversation_id', appState.activeConvId);
@@ -617,14 +702,18 @@ async function sendMessage() {
     if (appState.forwardMessageId) formData.append('forwarded_from', appState.forwardMessageId);
     if (appState.attachedFile) formData.append('media', appState.attachedFile);
 
-    // Optimistic UI update for text (simplified)
+    // Optimistic UI update
     input.value = '';
-    input.style.height = 'auto'; // Reset textarea height
-    const sendBtn = document.getElementById('btn-send');
+    input.style.height = '42px'; // Snap back to single-line height
     if (sendBtn) sendBtn.textContent = '🎤'; // Reset to mic
     cancelReply();
     cancelAttachment();
     clearTimeout(appState.typingTimeout);
+    const hdrStatus = document.getElementById('chat-header-status');
+    if (hdrStatus && hdrStatus.classList.contains('typing')) {
+        const conv = appState.conversations.find(c => c.id == appState.activeConvId);
+        if (conv) updateHeaderStatus(conv);
+    }
     fetch('../api/chat/manage_conversations.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -642,22 +731,26 @@ async function sendMessage() {
         }
     } catch (e) {
         console.error("Failed to send message", e);
+    } finally {
+        if (sendBtn) sendBtn.disabled = false;
+        document.getElementById('message-input').focus();
     }
 }
 
 function handleTyping() {
     if (!appState.activeConvId) return;
 
-    // Toggle send/mic icon
+    // Toggle send/mic icon (accounts for attachments too)
+    updateSendButtonState();
     const input = document.getElementById('message-input');
-    const sendBtn = document.getElementById('btn-send');
-    if (sendBtn) {
-        sendBtn.textContent = input.value.trim() ? '➤' : '🎤';
-    }
 
-    // Auto-resize textarea
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    // Auto-resize textarea (strict reset when empty to prevent snap-back glitch)
+    if (!input.value) {
+        input.style.height = '42px';
+    } else {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    }
 
     fetch('../api/chat/manage_conversations.php', {
         method: 'POST',
@@ -680,6 +773,7 @@ let contextMenuNode = null;
 
 function showContextMenu(e, msgId, isOwn, isDeleted) {
     e.preventDefault();
+    e.stopPropagation();
     closeContextMenu();
 
     if (isDeleted) return;
@@ -839,8 +933,14 @@ async function openMembersModal() {
         const data = await res.json();
         if (!data.success) return;
 
+        // Determine if I am admin in this conversation
+        const conv = appState.conversations.find(c => c.id == appState.activeConvId);
+        const iAmAdmin = conv && conv.my_role === 'admin';
+        const isGroupOrCommunity = conv && conv.type !== 'direct';
+
         document.getElementById('members-modal-count').textContent = data.count;
         const list = document.getElementById('members-modal-list');
+        const avatarColors = ['#25D366', '#7C3AED', '#E67E22', '#2563EB', '#E91E63', '#00ACC1'];
         let html = '';
 
         data.participants.forEach(p => {
@@ -850,15 +950,21 @@ async function openMembersModal() {
             
             const chatBadge = p.chat_role === 'admin' ? '<span class="member-badge-chat">Chat Admin</span>' : '';
             const statusIndicator = p.is_online ? '<span class="online-status-dot online"></span>' : '';
+            const avColor = avatarColors[p.user_id % avatarColors.length];
+
+            // Show remove button if I am admin, it's a group/community, and it's not myself
+            const removeBtn = (iAmAdmin && isGroupOrCommunity && !isMe)
+                ? `<button class="member-remove-btn" onclick="removeUser(${appState.activeConvId}, ${p.user_id})" title="Remove user">✖</button>`
+                : '';
 
             html += `
                 <div class="members-modal-item">
-                    <div class="members-modal-av" style="background: linear-gradient(135deg, #1e3a5f, #2e75b6)">${p.first_name.charAt(0)}</div>
+                    <div class="members-modal-av" style="background: ${avColor}">${escapeHTML(p.first_name).charAt(0)}</div>
                     <div class="members-modal-info">
-                        <div class="members-modal-name">${statusIndicator}${p.first_name} ${p.last_name} ${isMe ? '(You)' : ''}</div>
-                        <div class="members-modal-username">@${p.username}</div>
+                        <div class="members-modal-name">${statusIndicator}${escapeHTML(p.first_name)} ${escapeHTML(p.last_name)} ${isMe ? '(You)' : ''}</div>
+                        <div class="members-modal-username">@${escapeHTML(p.username)}</div>
                     </div>
-                    <div class="members-modal-badges">${badge}${chatBadge}</div>
+                    <div class="members-modal-badges">${badge}${chatBadge}${removeBtn}</div>
                 </div>
             `;
         });
@@ -872,6 +978,29 @@ async function openMembersModal() {
 
 function closeMembersModal() {
     document.getElementById('members-modal').style.display = 'none';
+}
+
+async function removeUser(convId, targetUserId) {
+    if (!confirm('Remove this user from the conversation?')) return;
+
+    try {
+        const res = await fetch('../api/chat/manage_conversations.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ action: 'remove_user', conversation_id: convId, target_user_id: targetUserId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('User removed successfully.');
+            updateMemberCount(convId);
+            openMembersModal(); // Re-render the modal with updated list
+        } else {
+            alert(data.message);
+        }
+    } catch (e) {
+        console.error('Remove user failed', e);
+        alert('Failed to remove user.');
+    }
 }
 
 // ─── Actions (Create, Add, Leave, Delete) ───

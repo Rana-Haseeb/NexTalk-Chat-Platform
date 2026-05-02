@@ -111,6 +111,18 @@ while ((time() - $start) < $max_execution) {
             if (!empty($status_updates)) {
                 $events[] = "event: status\ndata: " . json_encode($status_updates);
             }
+
+            // 4. Check for delete-for-everyone updates
+            $stmt = $pdo->prepare("
+                SELECT id FROM messages
+                WHERE conversation_id = ? AND deleted_for_all = 1
+                ORDER BY id DESC LIMIT 50
+            ");
+            $stmt->execute([$conversation_id]);
+            $deleted = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($deleted)) {
+                $events[] = "event: deletions\ndata: " . json_encode(array_map('intval', $deleted));
+            }
         }
 
         // 4. Update heartbeat

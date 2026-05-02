@@ -507,5 +507,60 @@ if ($method === 'GET') {
         } catch (Exception $e) {
             echo json_encode(["success" => true]);
         }
+
+    // ─── Remove User from Conversation (Admin only) ───
+    } elseif ($action === 'remove_user') {
+        $conv_id = $_POST['conversation_id'] ?? null;
+        $target_user_id = $_POST['target_user_id'] ?? null;
+
+        if (!$conv_id || !$target_user_id) {
+            http_response_code(400);
+            echo json_encode(["success" => false, "message" => "Conversation ID and target user ID are required"]);
+            exit;
+        }
+
+        if ($target_user_id == $user_id) {
+            http_response_code(400);
+            echo json_encode(["success" => false, "message" => "Cannot remove yourself. Use 'Leave' instead"]);
+            exit;
+        }
+
+        try {
+            // Verify requesting user is admin of this conversation
+            $stmt = $pdo->prepare("SELECT role FROM participants WHERE conversation_id = ? AND user_id = ?");
+            $stmt->execute([$conv_id, $user_id]);
+            $requester = $stmt->fetch();
+
+            if (!$requester || $requester['role'] !== 'admin') {
+                http_response_code(403);
+                echo json_encode(["success" => false, "message" => "Only conversation admins can remove users"]);
+                exit;
+            }
+
+            // Verify conversation is not a DM
+            $stmt = $pdo->prepare("SELECT type FROM conversations WHERE id = ?");
+            $stmt->execute([$conv_id]);
+            $conv = $stmt->fetch();
+
+            if (!$conv || $conv['type'] === 'direct') {
+                http_response_code(400);
+                echo json_encode(["success" => false, "message" => "Cannot remove users from direct messages"]);
+                exit;
+            }
+
+            // Remove the target user
+            $stmt = $pdo->prepare("DELETE FROM participants WHERE conversation_id = ? AND user_id = ?");
+            $stmt->execute([$conv_id, $target_user_id]);
+
+            if ($stmt->rowCount() === 0) {
+                echo json_encode(["success" => false, "message" => "User is not a participant"]);
+                exit;
+            }
+
+            echo json_encode(["success" => true, "message" => "User removed from conversation"]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(["success" => false, "message" => "Database error"]);
+        }
     }
 }
