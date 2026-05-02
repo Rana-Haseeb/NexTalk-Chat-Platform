@@ -45,8 +45,8 @@ CREATE TABLE `conversations` (
 CREATE TABLE `participants` (
   `conversation_id` INT NOT NULL,
   `user_id`         INT NOT NULL,
-  `role`            ENUM('admin', 'member') NOT NULL DEFAULT 'member',
-  `status`          ENUM('pending', 'approved') NOT NULL DEFAULT 'approved',
+  `role`            ENUM('admin', 'moderator', 'member') NOT NULL DEFAULT 'member',
+  `status`          ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved',
   `joined_at`       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`conversation_id`, `user_id`),
   CONSTRAINT `fk_participants_conv`
@@ -232,3 +232,7 @@ INSERT INTO `messages` (`conversation_id`, `sender_id`, `content`, `status`) VAL
   -- DM: Usman & Fatima
   (6, 3, 'Hey Fatima, are you free to discuss the UI?', 'read'),
   (6, 4, 'Sure! Lets do it.', 'sent');
+
+ALTER TABLE `participants`
+MODIFY COLUMN `role`
+ENUM('admin', 'moderator', 'member') NOT NULL DEFAULT 'member';

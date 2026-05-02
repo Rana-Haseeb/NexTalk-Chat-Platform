@@ -24,3 +24,6 @@ desktop.ini
 
 # Dependencies
 node_modules/
+
+# Environment variables
+api/.env

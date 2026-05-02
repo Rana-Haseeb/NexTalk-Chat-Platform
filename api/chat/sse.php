@@ -30,6 +30,21 @@ $user_id = $_SESSION["user_id"];
 $conversation_id = $_GET['conversation_id'] ?? null;
 $last_message_id = (int)($_GET['last_message_id'] ?? 0);
 
+if ($conversation_id) {
+    $chk = $pdo->prepare(
+        "SELECT status FROM participants
+         WHERE conversation_id = ? AND user_id = ?"
+    );
+    $chk->execute([$conversation_id, $user_id]);
+    $row = $chk->fetch();
+    if (!$row || $row['status'] !== 'approved') {
+        http_response_code(403);
+        header("Content-Type: application/json");
+        echo json_encode(["error" => "Not authorized to access this conversation"]);
+        exit;
+    }
+}
+
 // Crucial: Close session to prevent lock
 session_write_close();
 
@@ -40,6 +55,9 @@ $stmt->execute([$user_id]);
 $max_execution = 25; // seconds per SSE connection (then client reconnects)
 $start = time();
 $poll_ms = 1500; // poll database every 1.5 seconds
+$last_deletion_id = 0;
+$knownStatuses = [];
+$lastTypingJson = "";
 
 while ((time() - $start) < $max_execution) {
     // Check if client disconnected
@@ -74,6 +92,7 @@ while ((time() - $start) < $max_execution) {
                         $msg['content'] = '🚫 This message was deleted';
                         $msg['media_url'] = null;
                         $msg['media_type'] = null;
+                        $msg['media_name'] = null;
                     }
                     $last_message_id = max($last_message_id, (int)$msg['id']);
                 }
@@ -97,7 +116,11 @@ while ((time() - $start) < $max_execution) {
             ");
             $stmt->execute([$conversation_id, $user_id]);
             $typing = $stmt->fetchAll();
-            $events[] = "event: typing\ndata: " . json_encode($typing);
+            $typingJson = json_encode($typing);
+            if ($typingJson !== $lastTypingJson) {
+                $events[] = "event: typing\ndata: " . $typingJson;
+                $lastTypingJson = $typingJson;
+            }
 
             // 3. Check for status updates on own messages
             $stmt = $pdo->prepare("
@@ -108,19 +131,29 @@ while ((time() - $start) < $max_execution) {
             ");
             $stmt->execute([$conversation_id, $user_id]);
             $status_updates = $stmt->fetchAll();
-            if (!empty($status_updates)) {
-                $events[] = "event: status\ndata: " . json_encode($status_updates);
+            $changed = [];
+            foreach ($status_updates as $su) {
+                $mid = (int)$su['id'];
+                if (!isset($knownStatuses[$mid]) || $knownStatuses[$mid] !== $su['status']) {
+                    $knownStatuses[$mid] = $su['status'];
+                    $changed[] = $su;
+                }
+            }
+            if (!empty($changed)) {
+                $events[] = "event: status\ndata: " . json_encode($changed);
             }
 
             // 4. Check for delete-for-everyone updates
             $stmt = $pdo->prepare("
                 SELECT id FROM messages
                 WHERE conversation_id = ? AND deleted_for_all = 1
-                ORDER BY id DESC LIMIT 50
+                  AND id > ?
+                ORDER BY id ASC
             ");
-            $stmt->execute([$conversation_id]);
+            $stmt->execute([$conversation_id, $last_deletion_id]);
             $deleted = $stmt->fetchAll(PDO::FETCH_COLUMN);
             if (!empty($deleted)) {
+                $last_deletion_id = max(array_map('intval', $deleted));
                 $events[] = "event: deletions\ndata: " . json_encode(array_map('intval', $deleted));
             }
         }

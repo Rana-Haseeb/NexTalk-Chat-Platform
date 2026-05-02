@@ -59,6 +59,13 @@ $permissions = nex_role_permissions($role);
 $pdo->prepare("UPDATE users SET is_online = 1, last_seen_at = NOW() WHERE id = ?")->execute([$user["id"]]);
 
 // ── Create session ──
+$rememberMe = (isset($_POST["remember_me"]) && $_POST["remember_me"] === "1");
+if ($rememberMe) {
+    $lifetime = 60 * 60 * 24 * 30; // 30 days
+    ini_set("session.gc_maxlifetime", (string)$lifetime);
+    session_set_cookie_params($lifetime);
+}
+session_regenerate_id(true);
 $_SESSION["user_id"]    = $user["id"];
 $_SESSION["username"]   = $user["username"] ?? "";
 $_SESSION["first_name"] = $user["first_name"] ?? "";

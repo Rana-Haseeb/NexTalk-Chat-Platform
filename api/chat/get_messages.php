@@ -17,6 +17,7 @@ if (!isset($_SESSION["logged_in"]) || $_SESSION["logged_in"] !== true) {
 $user_id = $_SESSION["user_id"];
 $conversation_id = $_GET['conversation_id'] ?? null;
 $last_message_id = (int)($_GET['last_message_id'] ?? 0);
+$before_id = (int)($_GET['before_id'] ?? 0);
 
 if (!$conversation_id) {
     http_response_code(400);
@@ -37,7 +38,7 @@ try {
     }
 
     // Fetch messages with sender info, reply context, and delete filtering
-    $stmt = $pdo->prepare("
+    $query = "
         SELECT m.id, m.content, m.created_at, m.sender_id,
                m.media_url, m.media_type, m.media_name,
                m.reply_to_id, m.forwarded_from, m.status, m.deleted_for_all,
@@ -48,12 +49,28 @@ try {
         JOIN users u ON m.sender_id = u.id
         LEFT JOIN messages rm ON m.reply_to_id = rm.id
         LEFT JOIN users ru ON rm.sender_id = ru.id
-        WHERE m.conversation_id = ? AND m.id > ?
-          AND m.id NOT IN (SELECT message_id FROM message_deletions WHERE user_id = ?)
-        ORDER BY m.id ASC
-    ");
-    $stmt->execute([$conversation_id, $last_message_id, $user_id]);
+        LEFT JOIN message_deletions md
+               ON md.message_id = m.id AND md.user_id = ?
+        WHERE m.conversation_id = ?
+          AND md.message_id IS NULL
+    ";
+
+    $params = [$user_id, $conversation_id];
+
+    if ($before_id > 0) {
+        $query .= " AND m.id < ?";
+        $params[] = $before_id;
+    } else {
+        $query .= " AND m.id > ?";
+        $params[] = $last_message_id;
+    }
+
+    $query .= " ORDER BY m.id DESC LIMIT 100";
+
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($params);
     $messages = $stmt->fetchAll();
+    $messages = array_reverse($messages);
 
     // Process messages — handle deleted_for_all
     foreach ($messages as &$msg) {
@@ -81,6 +98,10 @@ try {
     $stmt = $pdo->prepare("
         UPDATE messages m SET m.status = 'delivered'
         WHERE m.conversation_id = ? AND m.status = 'sent'
+                    AND EXISTS (
+                        SELECT 1 FROM message_receipts mr2
+                        WHERE mr2.message_id = m.id
+                    )
           AND NOT EXISTS (
             SELECT 1 FROM message_receipts mr
             WHERE mr.message_id = m.id AND mr.delivered_at IS NULL

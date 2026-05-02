@@ -31,6 +31,16 @@ if ($method === 'GET') {
             exit;
         }
         try {
+            $stmt = $pdo->prepare("SELECT status FROM participants WHERE conversation_id = ? AND user_id = ?");
+            $stmt->execute([$conv_id, $user_id]);
+            $participant = $stmt->fetch();
+
+            if (!$participant || $participant['status'] !== 'approved') {
+                http_response_code(403);
+                echo json_encode(["success" => false, "message" => "Not a participant in this conversation"]);
+                exit;
+            }
+
             // Clean up stale typing indicators (older than 5 seconds)
             $pdo->prepare("DELETE FROM typing_status WHERE started_at < DATE_SUB(NOW(), INTERVAL 5 SECOND)")->execute();
 
@@ -71,7 +81,7 @@ if ($method === 'GET') {
                 SELECT MAX(id) FROM messages WHERE conversation_id = c.id
             )
             LEFT JOIN users lu ON lm.sender_id = lu.id
-            WHERE c.type = 'community' OR p.user_id = ?
+            WHERE p.user_id = ?
             ORDER BY COALESCE(lm.created_at, c.created_at) DESC
         ");
         $stmt->execute([$user_id, $user_id, $user_id, $user_id]);
@@ -110,6 +120,7 @@ if ($method === 'GET') {
         }
 
         echo json_encode(["success" => true, "conversations" => $conversations]);
+        exit;
     } catch (Exception $e) {
         http_response_code(500);
         echo json_encode(["success" => false, "message" => "Database error: " . $e->getMessage()]);
@@ -120,6 +131,23 @@ if ($method === 'GET') {
 // ═══════════════════════════════════════
 } elseif ($method === 'POST') {
     $action = $_POST['action'] ?? '';
+
+    $requireParticipant = function(int $conv_id) use ($pdo, $user_id): void {
+        $s = $pdo->prepare(
+            "SELECT status FROM participants
+             WHERE conversation_id = ? AND user_id = ?"
+        );
+        $s->execute([$conv_id, $user_id]);
+        $row = $s->fetch();
+        if (!$row || $row['status'] !== 'approved') {
+            http_response_code(403);
+            echo json_encode([
+                "success" => false,
+                "message" => "Not a participant in this conversation"
+            ]);
+            exit;
+        }
+    };
 
     // ─── Create Direct Message ───
     if ($action === 'create_direct') {
@@ -206,7 +234,7 @@ if ($method === 'GET') {
 
     // ─── Create Community ───
     } elseif ($action === 'create_community') {
-        if ($_SESSION['role'] !== 'admin') {
+        if (!in_array($_SESSION['role'] ?? '', ['admin', 'moderator'])) {
             http_response_code(403);
             echo json_encode(["success" => false, "message" => "Only admins can create communities"]);
             exit;
@@ -268,10 +296,48 @@ if ($method === 'GET') {
                 exit;
             }
 
-            $stmt = $pdo->prepare("INSERT IGNORE INTO participants (conversation_id, user_id, status) VALUES (?, ?, 'approved')");
-            $stmt->execute([$conv_id, $target_user['id']]);
+            $checkStmt = $pdo->prepare(
+                "SELECT status FROM participants
+                 WHERE conversation_id = ? AND user_id = ?"
+            );
+            $checkStmt->execute([$conv_id, $target_user['id']]);
+            $existing = $checkStmt->fetch();
 
-            echo json_encode(["success" => true, "message" => "User added successfully"]);
+            if ($existing) {
+                if ($existing['status'] === 'approved') {
+                    echo json_encode([
+                        "success" => false,
+                        "message" => "User is already a member of this conversation"
+                    ]);
+                } elseif ($existing['status'] === 'rejected') {
+                    $upd = $pdo->prepare(
+                        "UPDATE participants SET status = 'approved'
+                         WHERE conversation_id = ? AND user_id = ?"
+                    );
+                    $upd->execute([$conv_id, $target_user['id']]);
+                    echo json_encode([
+                        "success" => true,
+                        "message" => "Previously rejected user has been approved and added"
+                    ]);
+                } else {
+                    $upd = $pdo->prepare(
+                        "UPDATE participants SET status = 'approved'
+                         WHERE conversation_id = ? AND user_id = ?"
+                    );
+                    $upd->execute([$conv_id, $target_user['id']]);
+                    echo json_encode([
+                        "success" => true,
+                        "message" => "Pending user has been approved and added"
+                    ]);
+                }
+            } else {
+                $ins = $pdo->prepare(
+                    "INSERT INTO participants (conversation_id, user_id, role, status)
+                     VALUES (?, ?, 'member', 'approved')"
+                );
+                $ins->execute([$conv_id, $target_user['id']]);
+                echo json_encode(["success" => true, "message" => "User added successfully"]);
+            }
         } catch (Exception $e) {
             http_response_code(500);
             echo json_encode(["success" => false, "message" => "Database error"]);
@@ -296,6 +362,27 @@ if ($method === 'GET') {
                 http_response_code(400);
                 echo json_encode(["success" => false, "message" => "Cannot leave this conversation"]);
                 exit;
+            }
+
+            $roleStmt = $pdo->prepare(
+                "SELECT role FROM participants WHERE conversation_id = ? AND user_id = ?"
+            );
+            $roleStmt->execute([$conv_id, $user_id]);
+            $myRole = $roleStmt->fetch();
+
+            if ($myRole && $myRole['role'] === 'admin') {
+                $adminCountStmt = $pdo->prepare(
+                    "SELECT COUNT(*) FROM participants WHERE conversation_id = ? AND role = 'admin'"
+                );
+                $adminCountStmt->execute([$conv_id]);
+                if ((int)$adminCountStmt->fetchColumn() === 1) {
+                    http_response_code(400);
+                    echo json_encode([
+                        "success" => false,
+                        "message" => "You are the only admin. Promote another member before leaving."
+                    ]);
+                    exit;
+                }
             }
 
             $stmt = $pdo->prepare("DELETE FROM participants WHERE conversation_id = ? AND user_id = ?");
@@ -328,6 +415,15 @@ if ($method === 'GET') {
             if (!$is_sys_admin && !$is_conv_admin) {
                 http_response_code(403);
                 echo json_encode(["success" => false, "message" => "Only admins can delete conversations"]);
+                exit;
+            }
+
+            $convTypeStmt = $pdo->prepare("SELECT type FROM conversations WHERE id = ?");
+            $convTypeStmt->execute([$conv_id]);
+            $convType = $convTypeStmt->fetch();
+            if (!$convType || $convType['type'] === 'direct') {
+                http_response_code(400);
+                echo json_encode(["success" => false, "message" => "Cannot delete direct message conversations"]);
                 exit;
             }
 
@@ -369,7 +465,7 @@ if ($method === 'GET') {
                     echo json_encode(["success" => false, "message" => "Only the sender can delete for everyone"]);
                     exit;
                 }
-                $stmt = $pdo->prepare("UPDATE messages SET deleted_for_all = 1, content = NULL, media_url = NULL WHERE id = ?");
+                $stmt = $pdo->prepare("UPDATE messages SET deleted_for_all = 1, content = NULL, media_url = NULL, media_name = NULL WHERE id = ?");
                 $stmt->execute([$message_id]);
             } else {
                 // Delete for me
@@ -450,6 +546,8 @@ if ($method === 'GET') {
             exit;
         }
 
+        $requireParticipant((int)$conv_id);
+
         try {
             $stmt = $pdo->prepare("
                 UPDATE message_receipts mr
@@ -481,6 +579,7 @@ if ($method === 'GET') {
     } elseif ($action === 'typing_start') {
         $conv_id = $_POST['conversation_id'] ?? null;
         if ($conv_id) {
+            $requireParticipant((int)$conv_id);
             try {
                 $stmt = $pdo->prepare("INSERT INTO typing_status (conversation_id, user_id, started_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE started_at = NOW()");
                 $stmt->execute([$conv_id, $user_id]);
@@ -491,6 +590,7 @@ if ($method === 'GET') {
     } elseif ($action === 'typing_stop') {
         $conv_id = $_POST['conversation_id'] ?? null;
         if ($conv_id) {
+            $requireParticipant((int)$conv_id);
             try {
                 $stmt = $pdo->prepare("DELETE FROM typing_status WHERE conversation_id = ? AND user_id = ?");
                 $stmt->execute([$conv_id, $user_id]);

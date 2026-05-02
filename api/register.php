@@ -72,6 +72,7 @@ $stmt->execute([
 $newUserId = $pdo->lastInsertId();
 
 // ── Auto-login: Create session ──
+session_regenerate_id(true);
 $_SESSION["user_id"]    = $newUserId;
 $_SESSION["username"]   = $username;
 $_SESSION["first_name"] = $firstName;

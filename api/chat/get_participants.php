@@ -50,7 +50,7 @@ try {
         WHERE p.conversation_id = ? AND p.status = 'approved'
         ORDER BY
             u.is_online DESC,
-            FIELD(p.role, 'admin', 'member'),
+            FIELD(p.role, 'admin', 'moderator', 'member'),
             u.first_name ASC
     ");
     $stmt->execute([$conversation_id]);
