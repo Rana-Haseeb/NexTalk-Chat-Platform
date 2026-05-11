@@ -458,6 +458,16 @@ if ($method === 'GET') {
                 exit;
             }
 
+            $partStmt = $pdo->prepare(
+                "SELECT status FROM participants WHERE conversation_id = ? AND user_id = ? AND status = 'approved'"
+            );
+            $partStmt->execute([$msg['conversation_id'], $user_id]);
+            if (!$partStmt->fetch()) {
+                http_response_code(403);
+                echo json_encode(["success" => false, "message" => "Not a participant in this conversation"]);
+                exit;
+            }
+
             if ($delete_type === 'for_all') {
                 // Only sender can delete for everyone
                 if ($msg['sender_id'] != $user_id) {

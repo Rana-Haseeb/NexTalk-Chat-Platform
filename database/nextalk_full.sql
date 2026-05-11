@@ -232,7 +232,3 @@ INSERT INTO `messages` (`conversation_id`, `sender_id`, `content`, `status`) VAL
   -- DM: Usman & Fatima
   (6, 3, 'Hey Fatima, are you free to discuss the UI?', 'read'),
   (6, 4, 'Sure! Lets do it.', 'sent');
-
-ALTER TABLE `participants`
-MODIFY COLUMN `role`
-ENUM('admin', 'moderator', 'member') NOT NULL DEFAULT 'member';

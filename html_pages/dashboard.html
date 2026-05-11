@@ -38,7 +38,8 @@
         gap: 5px;
         margin-top: 5px;
       }
-      .btn-approve, .btn-reject {
+      .btn-approve,
+      .btn-reject {
         flex: 1;
         padding: 5px;
         border: none;
@@ -47,20 +48,81 @@
         font-weight: bold;
         color: white;
       }
-      .btn-approve { background: var(--online); }
-      .btn-reject { background: var(--danger); }
-      .room-item.pending { opacity: 0.6; }
-      
+      .btn-approve {
+        background: var(--online);
+      }
+      .btn-reject {
+        background: var(--danger);
+      }
+      .room-item.pending {
+        opacity: 0.6;
+      }
+
       .action-modal-overlay {
-        position: fixed; inset: 0; z-index: 10000;
-        background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);
-        display: flex; align-items: center; justify-content: center;
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
         padding: 20px;
       }
       .action-modal-card {
-        background: #1b2b3a; border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px; padding: 36px 32px; max-width: 420px; width: 100%;
+        background: #1b2b3a;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 36px 32px;
+        max-width: 420px;
+        width: 100%;
         box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+      }
+
+      /* Toast Notifications */
+      @keyframes slideInRight {
+        from {
+          opacity: 0;
+          transform: translateX(400px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      @keyframes slideOutRight {
+        from {
+          opacity: 1;
+          transform: translateX(0);
+        }
+        to {
+          opacity: 0;
+          transform: translateX(400px);
+        }
+      }
+
+      /* Request item styles */
+      .request-item {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        border-left: 3px solid var(--blue);
+        transition: all 0.3s ease-out;
+      }
+
+      .request-item:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .request-actions button:hover {
+        opacity: 0.85;
+        transform: scale(1.05);
+      }
+
+      .request-actions button {
+        transition: all 0.2s ease-out;
       }
     </style>
   </head>
@@ -75,47 +137,134 @@
     </div>
 
     <!-- Action Modal -->
-    <div class="action-modal-overlay" id="action-modal" style="display: none;">
+    <div class="action-modal-overlay" id="action-modal" style="display: none">
       <div class="action-modal-card">
-        <div class="modal-title" id="modal-title" style="font-size: 1.2rem; color: #fff; margin-bottom: 15px; font-weight: bold;">Title</div>
-        <div class="form-group" style="margin-bottom: 20px;">
-          <input type="text" id="modal-input" class="form-input" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #4a6178; background: #0d1f33; color: #fff;" placeholder="Enter here...">
+        <div
+          class="modal-title"
+          id="modal-title"
+          style="
+            font-size: 1.2rem;
+            color: #fff;
+            margin-bottom: 15px;
+            font-weight: bold;
+          "
+        >
+          Title
         </div>
-        <div class="modal-actions" style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button class="btn-cancel" onclick="closeModal()" style="padding: 10px 20px; background: transparent; border: 1px solid #4a6178; color: #94a3b8; border-radius: 8px; cursor: pointer;">Cancel</button>
-          <button class="btn-submit" id="modal-submit" style="padding: 10px 20px; background: var(--blue); border: none; color: white; border-radius: 8px; cursor: pointer;">Submit</button>
+        <div class="form-group" style="margin-bottom: 20px">
+          <input
+            type="text"
+            id="modal-input"
+            class="form-input"
+            style="
+              width: 100%;
+              padding: 12px;
+              border-radius: 8px;
+              border: 1px solid #4a6178;
+              background: #0d1f33;
+              color: #fff;
+            "
+            placeholder="Enter here..."
+          />
+        </div>
+        <div
+          class="modal-actions"
+          style="display: flex; gap: 10px; justify-content: flex-end"
+        >
+          <button
+            class="btn-cancel"
+            onclick="closeModal()"
+            style="
+              padding: 10px 20px;
+              background: transparent;
+              border: 1px solid #4a6178;
+              color: #94a3b8;
+              border-radius: 8px;
+              cursor: pointer;
+            "
+          >
+            Cancel
+          </button>
+          <button
+            class="btn-submit"
+            id="modal-submit"
+            style="
+              padding: 10px 20px;
+              background: var(--blue);
+              border: none;
+              color: white;
+              border-radius: 8px;
+              cursor: pointer;
+            "
+          >
+            Submit
+          </button>
         </div>
       </div>
     </div>
 
     <!-- Members Modal -->
-    <div class="members-modal-overlay" id="members-modal" style="display: none;" onclick="if(event.target===this)closeMembersModal()">
+    <div
+      class="members-modal-overlay"
+      id="members-modal"
+      style="display: none"
+      onclick="if (event.target === this) closeMembersModal();"
+    >
       <div class="members-modal-card">
         <div class="members-modal-header">
-          <div style="display:flex;align-items:center;">
+          <div style="display: flex; align-items: center">
             <h3 id="members-modal-title">Members</h3>
             <span class="members-count-tag" id="members-modal-count">0</span>
           </div>
-          <button class="members-modal-close" onclick="closeMembersModal()">✕</button>
+          <button class="members-modal-close" onclick="closeMembersModal()">
+            ✕
+          </button>
         </div>
         <div class="members-modal-list" id="members-modal-list"></div>
       </div>
     </div>
 
     <!-- Forward Modal -->
-    <div class="action-modal-overlay" id="forward-modal" style="display: none;" onclick="if(event.target===this)closeForwardModal()">
-        <div class="action-modal-card" style="max-width: 500px;">
-            <div class="modal-title" style="font-size: 1.2rem; color: #fff; margin-bottom: 15px; font-weight: bold;">Forward Message To...</div>
-            <div class="sidebar-search-box" style="padding:0 0 15px 0;">
-                <input type="text" class="sidebar-search-input" id="forward-search" placeholder="Search chats..." onkeyup="filterForwardList()">
-            </div>
-            <div class="forward-modal-list" id="forward-list">
-                <!-- Populated via JS -->
-            </div>
-            <div style="margin-top: 15px; text-align: right;">
-                <button class="btn-cancel" onclick="closeForwardModal()" style="padding: 8px 16px;">Cancel</button>
-            </div>
+    <div
+      class="action-modal-overlay"
+      id="forward-modal"
+      style="display: none"
+      onclick="if (event.target === this) closeForwardModal();"
+    >
+      <div class="action-modal-card" style="max-width: 500px">
+        <div
+          class="modal-title"
+          style="
+            font-size: 1.2rem;
+            color: #fff;
+            margin-bottom: 15px;
+            font-weight: bold;
+          "
+        >
+          Forward Message To...
         </div>
+        <div class="sidebar-search-box" style="padding: 0 0 15px 0">
+          <input
+            type="text"
+            class="sidebar-search-input"
+            id="forward-search"
+            placeholder="Search chats..."
+            onkeyup="filterForwardList()"
+          />
+        </div>
+        <div class="forward-modal-list" id="forward-list">
+          <!-- Populated via JS -->
+        </div>
+        <div style="margin-top: 15px; text-align: right">
+          <button
+            class="btn-cancel"
+            onclick="closeForwardModal()"
+            style="padding: 8px 16px"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="app-shell" id="app-shell" style="display: none">
@@ -123,29 +272,88 @@
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="sidebar-logo">Nex<span>Talk</span></div>
-          <div style="display: flex; gap: 5px;">
-            <button class="icon-btn" onclick="openActionModal('direct')" title="New Direct Message" style="width: 32px; height: 32px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: #cbd5e1;">👤</button>
-            <button class="icon-btn" onclick="openActionModal('group')" title="New Group Chat" style="width: 32px; height: 32px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: #cbd5e1;">👥</button>
-            <button class="icon-btn" id="btn-new-community" onclick="openActionModal('community')" title="New Community" style="display:none; width: 32px; height: 32px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: #cbd5e1;">🌍</button>
+          <div style="display: flex; gap: 5px">
+            <button
+              class="icon-btn"
+              onclick="openActionModal('direct')"
+              title="New Direct Message"
+              style="
+                width: 32px;
+                height: 32px;
+                border-color: rgba(255, 255, 255, 0.1);
+                background: rgba(255, 255, 255, 0.06);
+                color: #cbd5e1;
+              "
+            >
+              👤
+            </button>
+            <button
+              class="icon-btn"
+              onclick="openActionModal('group')"
+              title="New Group Chat"
+              style="
+                width: 32px;
+                height: 32px;
+                border-color: rgba(255, 255, 255, 0.1);
+                background: rgba(255, 255, 255, 0.06);
+                color: #cbd5e1;
+              "
+            >
+              👥
+            </button>
+            <button
+              class="icon-btn"
+              id="btn-new-community"
+              onclick="openActionModal('community')"
+              title="New Community"
+              style="
+                display: none;
+                width: 32px;
+                height: 32px;
+                border-color: rgba(255, 255, 255, 0.1);
+                background: rgba(255, 255, 255, 0.06);
+                color: #cbd5e1;
+              "
+            >
+              🌍
+            </button>
           </div>
         </div>
 
         <div class="sidebar-search-box">
-            <input type="text" class="sidebar-search-input" id="sidebar-search" placeholder="Search or start new chat" onkeyup="filterConversations()">
+          <input
+            type="text"
+            class="sidebar-search-input"
+            id="sidebar-search"
+            placeholder="Search or start new chat"
+            onkeyup="filterConversations()"
+          />
         </div>
 
-        <div style="flex: 1; overflow-y: auto;">
-            <!-- Communities -->
-            <div class="sidebar-section" id="hdr-communities">Communities</div>
-            <div id="list-communities" class="room-list" style="flex: none; overflow: visible;"></div>
+        <div style="flex: 1; overflow-y: auto">
+          <!-- Communities -->
+          <div class="sidebar-section" id="hdr-communities">Communities</div>
+          <div
+            id="list-communities"
+            class="room-list"
+            style="flex: none; overflow: visible"
+          ></div>
 
-            <!-- Groups -->
-            <div class="sidebar-section" id="hdr-groups">Groups</div>
-            <div id="list-groups" class="room-list" style="flex: none; overflow: visible;"></div>
+          <!-- Groups -->
+          <div class="sidebar-section" id="hdr-groups">Groups</div>
+          <div
+            id="list-groups"
+            class="room-list"
+            style="flex: none; overflow: visible"
+          ></div>
 
-            <!-- Direct Messages -->
-            <div class="sidebar-section" id="hdr-directs">Direct Messages</div>
-            <div id="list-directs" class="room-list" style="flex: none; overflow: visible;"></div>
+          <!-- Direct Messages -->
+          <div class="sidebar-section" id="hdr-directs">Direct Messages</div>
+          <div
+            id="list-directs"
+            class="room-list"
+            style="flex: none; overflow: visible"
+          ></div>
         </div>
 
         <!-- Bottom user info -->
@@ -155,7 +363,18 @@
             <div class="user-name" id="user-display-name">Loading...</div>
             <div class="user-role-badge" id="user-role-badge">Member</div>
           </div>
-          <button class="icon-btn logout-btn" onclick="handleLogout()" style="border-color: rgba(255,255,255,0.1); background: rgba(231,76,60,0.15); color: #e74c3c;" title="Logout">🚪</button>
+          <button
+            class="icon-btn logout-btn"
+            onclick="handleLogout()"
+            style="
+              border-color: rgba(255, 255, 255, 0.1);
+              background: rgba(231, 76, 60, 0.15);
+              color: #e74c3c;
+            "
+            title="Logout"
+          >
+            🚪
+          </button>
         </div>
       </aside>
 
@@ -165,58 +384,146 @@
           <div class="chat-header-info">
             <div class="chat-room-icon" id="chat-header-icon">💬</div>
             <div>
-              <div class="chat-room-name" id="chat-header-name">Select a conversation</div>
-              <div style="display:flex;align-items:center;gap:8px;">
+              <div class="chat-room-name" id="chat-header-name">
+                Select a conversation
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px">
                 <div class="chat-header-status" id="chat-header-status"></div>
-                <button class="member-count-btn" id="member-count-btn" style="display:none;" onclick="openMembersModal()">
+                <button
+                  class="member-count-btn"
+                  id="member-count-btn"
+                  style="display: none"
+                  onclick="openMembersModal()"
+                >
                   <span class="count-icon">👥</span>
                   <span id="member-count-text">0 members</span>
                 </button>
               </div>
             </div>
           </div>
-          <div class="chat-header-actions" id="chat-header-actions" style="display:none;">
-             <button class="chat-action-btn" id="btn-add-user" onclick="openActionModal('add_user')" title="Add User" style="display:none;">➕ Add User</button>
-             <button class="chat-action-btn danger" id="btn-leave-conv" onclick="leaveConversation()">Leave</button>
-             <button class="chat-action-btn danger" id="btn-del-conv" onclick="deleteConversation()" style="display:none;">Delete</button>
+          <div
+            class="chat-header-actions"
+            id="chat-header-actions"
+            style="display: none"
+          >
+            <button
+              class="chat-action-btn"
+              id="btn-add-user"
+              onclick="openActionModal('add_user')"
+              title="Add User"
+              style="display: none"
+            >
+              ➕ Add User
+            </button>
+            <button
+              class="chat-action-btn danger"
+              id="btn-leave-conv"
+              onclick="leaveConversation()"
+            >
+              Leave
+            </button>
+            <button
+              class="chat-action-btn danger"
+              id="btn-del-conv"
+              onclick="deleteConversation()"
+              style="display: none"
+            >
+              Delete
+            </button>
           </div>
         </div>
 
-        <div class="messages-area" id="messages-container" onscroll="handleScroll()">
-           <div class="disabled-state">Please select a conversation from the sidebar to start messaging.</div>
-           <!-- Scroll to Bottom FAB — inside messages-area for proper sticky positioning -->
-           <button class="scroll-bottom-btn" id="btn-scroll-bottom" onclick="scrollToBottom()">↓</button>
+        <div
+          class="messages-area"
+          id="messages-container"
+          onscroll="handleScroll()"
+        >
+          <div class="disabled-state">
+            Please select a conversation from the sidebar to start messaging.
+          </div>
+          <!-- Scroll to Bottom FAB — inside messages-area for proper sticky positioning -->
+          <button
+            class="scroll-bottom-btn"
+            id="btn-scroll-bottom"
+            onclick="scrollToBottom()"
+          >
+            ↓
+          </button>
         </div>
 
-        <div style="display: flex; flex-direction: column;">
-            <!-- Reply Bar -->
-            <div class="reply-bar" id="reply-bar" style="display: none;">
-                <div class="reply-bar-content">
-                    <div class="reply-bar-sender" id="reply-bar-sender">Sender Name</div>
-                    <div class="reply-bar-text" id="reply-bar-text">Message content preview...</div>
-                </div>
-                <button class="reply-bar-close" onclick="cancelReply()">✕</button>
+        <div style="display: flex; flex-direction: column">
+          <!-- Reply Bar -->
+          <div class="reply-bar" id="reply-bar" style="display: none">
+            <div class="reply-bar-content">
+              <div class="reply-bar-sender" id="reply-bar-sender">
+                Sender Name
+              </div>
+              <div class="reply-bar-text" id="reply-bar-text">
+                Message content preview...
+              </div>
             </div>
+            <button class="reply-bar-close" onclick="cancelReply()">✕</button>
+          </div>
 
-            <!-- File Preview Bar -->
-            <div class="file-preview-bar" id="file-preview-bar" style="display: none;">
-                <div style="font-size: 1.2rem;">📎</div>
-                <div class="file-preview-name" id="file-preview-name">filename.jpg (2.5MB)</div>
-                <button class="reply-bar-close" onclick="cancelAttachment()">✕</button>
+          <!-- File Preview Bar -->
+          <div
+            class="file-preview-bar"
+            id="file-preview-bar"
+            style="display: none"
+          >
+            <div style="font-size: 1.2rem">📎</div>
+            <div class="file-preview-name" id="file-preview-name">
+              filename.jpg (2.5MB)
             </div>
+            <button class="reply-bar-close" onclick="cancelAttachment()">
+              ✕
+            </button>
+          </div>
 
-            <div class="chat-input-area" id="chat-input-area" style="display: none;">
-                <button class="attach-btn" onclick="document.getElementById('file-upload').click()" title="Attach File">📎</button>
-                <input type="file" id="file-upload" style="display: none;" onchange="handleFileSelect(event)">
-                <textarea class="chat-input" id="message-input" rows="1" placeholder="Type a message..." oninput="handleTyping()"></textarea>
-                <button class="send-btn" id="btn-send" onclick="sendMessage()" title="Send">🎤</button>
-            </div>
+          <div
+            class="chat-input-area"
+            id="chat-input-area"
+            style="display: none"
+          >
+            <button
+              class="attach-btn"
+              onclick="document.getElementById('file-upload').click()"
+              title="Attach File"
+            >
+              📎
+            </button>
+            <input
+              type="file"
+              id="file-upload"
+              style="display: none"
+              onchange="handleFileSelect(event)"
+            />
+            <textarea
+              class="chat-input"
+              id="message-input"
+              rows="1"
+              placeholder="Type a message..."
+              oninput="handleTyping()"
+            ></textarea>
+            <button
+              class="send-btn"
+              id="btn-send"
+              onclick="sendMessage()"
+              title="Send"
+            >
+              🎤
+            </button>
+          </div>
         </div>
       </main>
 
       <!-- ══════════════ RIGHT PANEL ══════════════ -->
       <aside class="right-panel">
-        <div class="panel-section" id="community-requests-section" style="display:none;">
+        <div
+          class="panel-section"
+          id="community-requests-section"
+          style="display: none"
+        >
           <div class="panel-title">Community Requests</div>
           <div id="requests-list"></div>
         </div>
@@ -226,7 +533,16 @@
         <div class="panel-section">
           <div class="panel-title">Online Information</div>
           <div class="member-item" id="member-self">
-            <div class="member-av" style="background: linear-gradient(135deg, #1e3a5f, #2e75b6); position: relative;" id="member-self-avatar">A</div>
+            <div
+              class="member-av"
+              style="
+                background: linear-gradient(135deg, #1e3a5f, #2e75b6);
+                position: relative;
+              "
+              id="member-self-avatar"
+            >
+              A
+            </div>
             <div>
               <div class="member-name" id="member-self-name">Loading...</div>
               <div class="member-role" id="member-self-role">You</div>

@@ -5,11 +5,18 @@
 // ==============================================
 session_start();
 header("Content-Type: application/json");
+require_once "db.php";
 require_once "roles.php";
 
 $requiredRole = nex_normalize_role($_GET["required_role"] ?? NEX_ROLE_MEMBER);
 
 if (isset($_SESSION["logged_in"]) && $_SESSION["logged_in"] === true) {
+    $roleStmt = $pdo->prepare("SELECT role FROM users WHERE id = ?");
+    $roleStmt->execute([$_SESSION['user_id']]);
+    $freshUser = $roleStmt->fetch();
+    if ($freshUser && $freshUser['role'] !== ($_SESSION['role'] ?? '')) {
+        $_SESSION['role'] = $freshUser['role'];
+    }
     $role = nex_normalize_role($_SESSION["role"] ?? NEX_ROLE_MEMBER);
 
     if (!nex_has_min_role($role, $requiredRole)) {
