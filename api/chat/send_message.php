@@ -1,7 +1,7 @@
 <?php
 // ==============================================
 // NexTalk — Send Message API (WhatsApp-style)
-// Supports: text, media upload, reply, forward
+// Supports: text, media upload, reply, forward, polls
 // ==============================================
 session_start();
 header("Content-Type: application/json");
@@ -24,6 +24,10 @@ $conversation_id = $_POST['conversation_id'] ?? null;
 $content = trim($_POST['content'] ?? '');
 $reply_to_id = $_POST['reply_to_id'] ?? null;
 $forwarded_from = $_POST['forwarded_from'] ?? null;
+
+// ─── Poll data ───
+$poll_question = trim($_POST['poll_question'] ?? '');
+$poll_options = $_POST['poll_options'] ?? [];
 
 // Handle media upload
 $media_url = null;
@@ -83,8 +87,22 @@ if (isset($_FILES['media']) && $_FILES['media']['error'] === UPLOAD_ERR_OK) {
     $media_url = 'uploads/' . $safe_name;
 }
 
-// Must have content or media
-if (!$content && !$media_url) {
+// ─── Determine if this is a poll message ───
+$is_poll = false;
+$poll_options_clean = is_array($poll_options)
+    ? array_values(array_filter(array_map('trim', $poll_options), fn($o) => $o !== ''))
+    : [];
+if ($poll_question && count($poll_options_clean) >= 2) {
+    $is_poll = true;
+    $media_type = 'poll';
+    // Set content to the poll question for preview purposes
+    if (!$content) {
+        $content = "📊 " . $poll_question;
+    }
+}
+
+// Must have content or media or poll
+if (!$content && !$media_url && !$is_poll) {
     http_response_code(400);
     echo json_encode(["success" => false, "message" => "Message content or media is required"]);
     exit;
@@ -108,12 +126,50 @@ try {
         exit;
     }
 
+    // ─── Block check for DMs ───
+    $convStmt = $pdo->prepare("SELECT type FROM conversations WHERE id = ?");
+    $convStmt->execute([$conversation_id]);
+    $convRow = $convStmt->fetch();
+
+    if ($convRow && $convRow['type'] === 'direct') {
+        if ($is_poll) {
+            http_response_code(400);
+            echo json_encode(["success" => false, "message" => "Polls are not allowed in direct messages"]);
+            exit;
+        }
+
+        // Get the other user in the DM
+        $otherStmt = $pdo->prepare(
+            "SELECT user_id FROM participants WHERE conversation_id = ? AND user_id != ?"
+        );
+        $otherStmt->execute([$conversation_id, $user_id]);
+        $otherUser = $otherStmt->fetch();
+
+        if ($otherUser) {
+            $other_id = $otherUser['user_id'];
+            $blockStmt = $pdo->prepare(
+                "SELECT 1 FROM blocked_users
+                 WHERE (blocker_id = ? AND blocked_id = ?)
+                    OR (blocker_id = ? AND blocked_id = ?)
+                 LIMIT 1"
+            );
+            $blockStmt->execute([$user_id, $other_id, $other_id, $user_id]);
+            if ($blockStmt->fetch()) {
+                http_response_code(403);
+                echo json_encode(["success" => false, "message" => "Cannot send messages. There is a block between you and this user."]);
+                exit;
+            }
+        }
+    }
+
     // Validate reply_to_id belongs to same conversation
     if ($reply_to_id) {
         $stmt = $pdo->prepare("SELECT id FROM messages WHERE id = ? AND conversation_id = ?");
         $stmt->execute([$reply_to_id, $conversation_id]);
         if (!$stmt->fetch()) $reply_to_id = null;
     }
+
+    $pdo->beginTransaction();
 
     $stmt = $pdo->prepare("
         INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type, media_name, reply_to_id, forwarded_from, status)
@@ -127,6 +183,18 @@ try {
 
     $message_id = $pdo->lastInsertId();
 
+    // ─── Insert poll data if applicable ───
+    if ($is_poll) {
+        $pollStmt = $pdo->prepare("INSERT INTO polls (message_id, question) VALUES (?, ?)");
+        $pollStmt->execute([$message_id, $poll_question]);
+        $poll_id = $pdo->lastInsertId();
+
+        $optStmt = $pdo->prepare("INSERT INTO poll_options (poll_id, option_text) VALUES (?, ?)");
+        foreach ($poll_options_clean as $opt) {
+            $optStmt->execute([$poll_id, $opt]);
+        }
+    }
+
     // Create delivery receipts for all other participants
     $stmt = $pdo->prepare("
         INSERT INTO message_receipts (message_id, user_id)
@@ -139,12 +207,15 @@ try {
     $stmt = $pdo->prepare("DELETE FROM typing_status WHERE conversation_id = ? AND user_id = ?");
     $stmt->execute([$conversation_id, $user_id]);
 
+    $pdo->commit();
+
     echo json_encode([
         "success" => true,
         "message_id" => $message_id,
         "media_url" => $media_url
     ]);
 } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
     http_response_code(500);
     echo json_encode(["success" => false, "message" => "Database error: " . $e->getMessage()]);
 }

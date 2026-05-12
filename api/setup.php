@@ -5,6 +5,12 @@
 
 require_once "db.php";
 
+if (!isset($_GET['token']) || $_GET['token'] !== 'YOUR_SECRET_TOKEN') {
+    http_response_code(403);
+    echo json_encode(["success" => false, "message" => "Forbidden"]);
+    exit;
+}
+
 // Ensure role-based access is supported for existing DBs.
 $tableCheck = $pdo->query(
     "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES

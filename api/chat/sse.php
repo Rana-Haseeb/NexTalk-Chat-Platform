@@ -58,6 +58,9 @@ $poll_ms = 1500; // poll database every 1.5 seconds
 $last_deletion_id = 0;
 $knownStatuses = [];
 $lastTypingJson = "";
+// High-water mark for poll vote detection — use MySQL clock so it
+// matches poll_votes.voted_at regardless of PHP timezone differences.
+$lastPollVoteAt = $pdo->query("SELECT NOW()")->fetchColumn();
 
 while ((time() - $start) < $max_execution) {
     // Check if client disconnected
@@ -79,11 +82,12 @@ while ((time() - $start) < $max_execution) {
                 JOIN users u ON m.sender_id = u.id
                 LEFT JOIN messages rm ON m.reply_to_id = rm.id
                 LEFT JOIN users ru ON rm.sender_id = ru.id
+                LEFT JOIN message_deletions md ON m.id = md.message_id AND md.user_id = ?
                 WHERE m.conversation_id = ? AND m.id > ?
-                  AND m.id NOT IN (SELECT message_id FROM message_deletions WHERE user_id = ?)
+                  AND md.message_id IS NULL
                 ORDER BY m.id ASC
             ");
-            $stmt->execute([$conversation_id, $last_message_id, $user_id]);
+            $stmt->execute([$user_id, $conversation_id, $last_message_id]);
             $new_messages = $stmt->fetchAll();
 
             if (!empty($new_messages)) {
@@ -155,6 +159,23 @@ while ((time() - $start) < $max_execution) {
             if (!empty($deleted)) {
                 $last_deletion_id = max(array_map('intval', $deleted));
                 $events[] = "event: deletions\ndata: " . json_encode(array_map('intval', $deleted));
+            }
+
+            // 5. Check for new poll votes in this conversation
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT p.message_id
+                FROM poll_votes pv
+                JOIN poll_options po ON pv.option_id = po.id
+                JOIN polls p ON po.poll_id = p.id
+                JOIN messages m ON p.message_id = m.id
+                WHERE m.conversation_id = ? AND pv.voted_at > ?
+            ");
+            $stmt->execute([$conversation_id, $lastPollVoteAt]);
+            $updatedPolls = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($updatedPolls)) {
+                // Advance the high-water mark using MySQL's clock (same source as voted_at).
+                $lastPollVoteAt = $pdo->query("SELECT NOW()")->fetchColumn();
+                $events[] = "event: poll_update\ndata: " . json_encode(array_map('intval', $updatedPolls));
             }
         }
 

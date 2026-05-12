@@ -107,7 +107,7 @@ if ($method === 'GET') {
 
             // Format last message preview
             if ($conv['last_message'] && $conv['last_media_type']) {
-                $media_icons = ['image' => '📷 Photo', 'document' => '📄 Document', 'audio' => '🎵 Audio', 'video' => '🎬 Video'];
+                $media_icons = ['image' => '📷 Photo', 'document' => '📄 Document', 'audio' => '🎵 Audio', 'video' => '🎬 Video', 'poll' => '📊 Poll'];
                 $conv['last_message_preview'] = ($conv['last_sender_id'] == $user_id ? 'You: ' : '')
                     . ($media_icons[$conv['last_media_type']] ?? 'Attachment');
             } elseif ($conv['last_message']) {
@@ -173,6 +173,20 @@ if ($method === 'GET') {
             if ($target_id == $user_id) {
                 http_response_code(400);
                 echo json_encode(["success" => false, "message" => "Cannot create direct message with yourself"]);
+                exit;
+            }
+
+            // ─── Block check ───
+            $blockStmt = $pdo->prepare(
+                "SELECT 1 FROM blocked_users
+                 WHERE (blocker_id = ? AND blocked_id = ?)
+                    OR (blocker_id = ? AND blocked_id = ?)
+                 LIMIT 1"
+            );
+            $blockStmt->execute([$user_id, $target_id, $target_id, $user_id]);
+            if ($blockStmt->fetch()) {
+                http_response_code(403);
+                echo json_encode(["success" => false, "message" => "Cannot create a conversation with this user."]);
                 exit;
             }
 
@@ -477,6 +491,11 @@ if ($method === 'GET') {
                 }
                 $stmt = $pdo->prepare("UPDATE messages SET deleted_for_all = 1, content = NULL, media_url = NULL, media_name = NULL WHERE id = ?");
                 $stmt->execute([$message_id]);
+
+                // Clean up poll data if this was a poll message
+                // (ON DELETE CASCADE on poll_options and poll_votes handles child rows automatically)
+                $cleanPoll = $pdo->prepare("DELETE FROM polls WHERE message_id = ?");
+                $cleanPoll->execute([$message_id]);
             } else {
                 // Delete for me
                 $stmt = $pdo->prepare("INSERT IGNORE INTO message_deletions (message_id, user_id) VALUES (?, ?)");
@@ -521,6 +540,51 @@ if ($method === 'GET') {
                 exit;
             }
 
+            // ─── Target conversation guards (DM-only rules) ───
+            $tgtStmt = $pdo->prepare("SELECT type FROM conversations WHERE id = ?");
+            $tgtStmt->execute([$target_conv_id]);
+            $targetType = $tgtStmt->fetchColumn();
+
+            if ($targetType === 'direct') {
+                // Polls are not allowed in DMs — forwarding must not bypass this.
+                if ($orig['media_type'] === 'poll') {
+                    http_response_code(400);
+                    echo json_encode([
+                        "success" => false,
+                        "message" => "Polls cannot be forwarded into direct messages"
+                    ]);
+                    exit;
+                }
+
+                // Block check — forwarding must not bypass blocking either.
+                $otherStmt = $pdo->prepare(
+                    "SELECT user_id FROM participants
+                     WHERE conversation_id = ? AND user_id != ?"
+                );
+                $otherStmt->execute([$target_conv_id, $user_id]);
+                $other_id = $otherStmt->fetchColumn();
+
+                if ($other_id) {
+                    $blockStmt = $pdo->prepare(
+                        "SELECT 1 FROM blocked_users
+                         WHERE (blocker_id = ? AND blocked_id = ?)
+                            OR (blocker_id = ? AND blocked_id = ?)
+                         LIMIT 1"
+                    );
+                    $blockStmt->execute([$user_id, $other_id, $other_id, $user_id]);
+                    if ($blockStmt->fetch()) {
+                        http_response_code(403);
+                        echo json_encode([
+                            "success" => false,
+                            "message" => "Cannot forward — there is a block between you and this user."
+                        ]);
+                        exit;
+                    }
+                }
+            }
+
+            $pdo->beginTransaction();
+
             $stmt = $pdo->prepare("
                 INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type, media_name, forwarded_from, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'sent')
@@ -533,6 +597,27 @@ if ($method === 'GET') {
 
             $new_id = $pdo->lastInsertId();
 
+            // ─── Copy poll data if forwarding a poll ───
+            if ($orig['media_type'] === 'poll') {
+                $srcPoll = $pdo->prepare("SELECT question FROM polls WHERE message_id = ?");
+                $srcPoll->execute([$message_id]);
+                $pollRow = $srcPoll->fetch();
+                if ($pollRow) {
+                    $newPollStmt = $pdo->prepare("INSERT INTO polls (message_id, question) VALUES (?, ?)");
+                    $newPollStmt->execute([$new_id, $pollRow['question']]);
+                    $new_poll_id = $pdo->lastInsertId();
+
+                    $srcOpts = $pdo->prepare(
+                        "SELECT option_text FROM poll_options WHERE poll_id = (SELECT id FROM polls WHERE message_id = ?)"
+                    );
+                    $srcOpts->execute([$message_id]);
+                    $optCopy = $pdo->prepare("INSERT INTO poll_options (poll_id, option_text) VALUES (?, ?)");
+                    foreach ($srcOpts->fetchAll() as $opt) {
+                        $optCopy->execute([$new_poll_id, $opt['option_text']]);
+                    }
+                }
+            }
+
             // Create receipts
             $stmt = $pdo->prepare("
                 INSERT INTO message_receipts (message_id, user_id)
@@ -541,8 +626,11 @@ if ($method === 'GET') {
             ");
             $stmt->execute([$new_id, $target_conv_id, $user_id]);
 
+            $pdo->commit();
+
             echo json_encode(["success" => true, "message_id" => $new_id]);
         } catch (Exception $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             http_response_code(500);
             echo json_encode(["success" => false, "message" => "Database error"]);
         }
@@ -668,6 +756,90 @@ if ($method === 'GET') {
             }
 
             echo json_encode(["success" => true, "message" => "User removed from conversation"]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(["success" => false, "message" => "Database error"]);
+        }
+
+    // ─── Block User (DMs only) ───
+    } elseif ($action === 'block_user') {
+        $target_user_id = $_POST['target_user_id'] ?? null;
+
+        if (!$target_user_id) {
+            http_response_code(400);
+            echo json_encode(["success" => false, "message" => "Target user ID is required"]);
+            exit;
+        }
+
+        if ($target_user_id == $user_id) {
+            http_response_code(400);
+            echo json_encode(["success" => false, "message" => "Cannot block yourself"]);
+            exit;
+        }
+
+        try {
+            $stmt = $pdo->prepare(
+                "INSERT IGNORE INTO blocked_users (blocker_id, blocked_id) VALUES (?, ?)"
+            );
+            $stmt->execute([$user_id, $target_user_id]);
+            echo json_encode(["success" => true, "message" => "User blocked successfully"]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(["success" => false, "message" => "Database error"]);
+        }
+
+    // ─── Unblock User ───
+    } elseif ($action === 'unblock_user') {
+        $target_user_id = $_POST['target_user_id'] ?? null;
+
+        if (!$target_user_id) {
+            http_response_code(400);
+            echo json_encode(["success" => false, "message" => "Target user ID is required"]);
+            exit;
+        }
+
+        try {
+            $stmt = $pdo->prepare(
+                "DELETE FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?"
+            );
+            $stmt->execute([$user_id, $target_user_id]);
+            echo json_encode(["success" => true, "message" => "User unblocked successfully"]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(["success" => false, "message" => "Database error"]);
+        }
+
+    // ─── Check Block Status (GET-style via POST for consistency) ───
+    } elseif ($action === 'check_block') {
+        $target_user_id = $_POST['target_user_id'] ?? null;
+
+        if (!$target_user_id) {
+            http_response_code(400);
+            echo json_encode(["success" => false, "message" => "Target user ID is required"]);
+            exit;
+        }
+
+        try {
+            // Check if current user blocked the target
+            $stmt = $pdo->prepare(
+                "SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ? LIMIT 1"
+            );
+            $stmt->execute([$user_id, $target_user_id]);
+            $i_blocked = (bool)$stmt->fetch();
+
+            // Check if target blocked the current user
+            $stmt2 = $pdo->prepare(
+                "SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ? LIMIT 1"
+            );
+            $stmt2->execute([$target_user_id, $user_id]);
+            $they_blocked = (bool)$stmt2->fetch();
+
+            echo json_encode([
+                "success" => true,
+                "i_blocked" => $i_blocked,
+                "they_blocked" => $they_blocked,
+                "any_block" => $i_blocked || $they_blocked
+            ]);
         } catch (Exception $e) {
             http_response_code(500);
             echo json_encode(["success" => false, "message" => "Database error"]);

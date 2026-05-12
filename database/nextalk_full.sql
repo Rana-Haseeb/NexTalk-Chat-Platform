@@ -232,3 +232,71 @@ INSERT INTO `messages` (`conversation_id`, `sender_id`, `content`, `status`) VAL
   -- DM: Usman & Fatima
   (6, 3, 'Hey Fatima, are you free to discuss the UI?', 'read'),
   (6, 4, 'Sure! Lets do it.', 'sent');
+
+
+-- ==============================================
+-- 8. Blocked Users (Direct Messages Only)
+-- ==============================================
+CREATE TABLE `blocked_users` (
+  `blocker_id`  INT NOT NULL,
+  `blocked_id`  INT NOT NULL,
+  `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`blocker_id`, `blocked_id`),
+  CONSTRAINT `fk_blocker_user`
+    FOREIGN KEY (`blocker_id`) REFERENCES `users`(`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_blocked_user`
+    FOREIGN KEY (`blocked_id`) REFERENCES `users`(`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+-- ==============================================
+-- 9. Alter Messages — add 'poll' to media_type ENUM
+-- ==============================================
+ALTER TABLE `messages`
+  MODIFY COLUMN `media_type` ENUM('image', 'document', 'audio', 'video', 'poll') DEFAULT NULL;
+
+
+-- ==============================================
+-- 10. Polls Table
+-- ==============================================
+CREATE TABLE `polls` (
+  `id`          INT AUTO_INCREMENT PRIMARY KEY,
+  `message_id`  INT NOT NULL UNIQUE,
+  `question`    VARCHAR(500) NOT NULL,
+  `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_polls_message`
+    FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+-- ==============================================
+-- 11. Poll Options Table
+-- ==============================================
+CREATE TABLE `poll_options` (
+  `id`          INT AUTO_INCREMENT PRIMARY KEY,
+  `poll_id`     INT NOT NULL,
+  `option_text` VARCHAR(255) NOT NULL,
+  CONSTRAINT `fk_poll_options_poll`
+    FOREIGN KEY (`poll_id`) REFERENCES `polls`(`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+-- ==============================================
+-- 12. Poll Votes Table
+-- ==============================================
+CREATE TABLE `poll_votes` (
+  `option_id`   INT NOT NULL,
+  `user_id`     INT NOT NULL,
+  `voted_at`    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`option_id`, `user_id`),
+  CONSTRAINT `fk_poll_votes_option`
+    FOREIGN KEY (`option_id`) REFERENCES `poll_options`(`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_poll_votes_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

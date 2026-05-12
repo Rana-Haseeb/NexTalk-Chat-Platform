@@ -124,6 +124,333 @@
       .request-actions button {
         transition: all 0.2s ease-out;
       }
+
+      /* ─── Block System Styles ─── */
+      .block-btn {
+        width: 100%;
+        padding: 10px 16px;
+        border: 1px solid rgba(231, 76, 60, 0.4);
+        background: rgba(231, 76, 60, 0.12);
+        color: #e74c3c;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        margin-top: 12px;
+      }
+      .block-btn:hover {
+        background: rgba(231, 76, 60, 0.25);
+      }
+      .block-btn.unblock {
+        border-color: rgba(34, 197, 94, 0.4);
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+      }
+      .block-btn.unblock:hover {
+        background: rgba(34, 197, 94, 0.25);
+      }
+      .blocked-overlay {
+        display: none;
+        padding: 14px 20px;
+        background: rgba(231, 76, 60, 0.08);
+        border-top: 1px solid rgba(231, 76, 60, 0.2);
+        text-align: center;
+        color: #e74c3c;
+        font-size: 0.9rem;
+        font-weight: 500;
+      }
+
+      /* ─── Smart Replies (AI) ─── */
+      .smart-replies-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        background: linear-gradient(
+          90deg,
+          rgba(46, 117, 182, 0.12),
+          rgba(124, 58, 237, 0.14)
+        );
+        border-top: 1px solid rgba(91, 33, 182, 0.35);
+        border-bottom: 1px solid rgba(91, 33, 182, 0.25);
+      }
+      .smart-replies-label {
+        font-size: 0.72rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #5b21b6;
+        flex-shrink: 0;
+      }
+      .smart-replies-chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        flex: 1;
+        min-height: 28px;
+        align-items: center;
+      }
+      .smart-reply-chip {
+        background: #ffffff;
+        border: 1.5px solid #7c3aed;
+        color: #4c1d95;
+        padding: 7px 14px;
+        border-radius: 18px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+        max-width: 280px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        box-shadow: 0 1px 3px rgba(91, 33, 182, 0.18);
+      }
+      .smart-reply-chip:hover {
+        background: #7c3aed;
+        color: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 3px 8px rgba(91, 33, 182, 0.35);
+      }
+      .smart-reply-chip:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      .smart-replies-refresh {
+        background: #ffffff;
+        border: 1.5px solid #7c3aed;
+        color: #5b21b6;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 1rem;
+        font-weight: 700;
+        flex-shrink: 0;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .smart-replies-refresh:hover {
+        background: #7c3aed;
+        color: #ffffff;
+      }
+      .smart-replies-refresh.spinning {
+        animation: spinChip 0.8s linear infinite;
+      }
+      @keyframes spinChip {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      .smart-replies-empty {
+        color: #5b21b6;
+        font-size: 0.82rem;
+        font-style: italic;
+        font-weight: 500;
+      }
+
+      /* ─── Translated message tag ─── */
+      .ai-translated-tag {
+        display: inline-block;
+        margin-top: 4px;
+        padding: 2px 8px;
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        background: rgba(124, 58, 237, 0.18);
+        color: #a78bfa;
+        border-radius: 10px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .ai-translated-tag:hover {
+        background: rgba(124, 58, 237, 0.32);
+      }
+
+      /* ─── Poll Styles ─── */
+      .poll-btn {
+        width: 38px;
+        height: 38px;
+        border: none;
+        background: transparent;
+        font-size: 1.2rem;
+        cursor: pointer;
+        border-radius: 8px;
+        transition: background 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .poll-btn:hover {
+        background: rgba(0, 0, 0, 0.08);
+      }
+
+      /* Poll Creation Modal */
+      .poll-modal-card {
+        background: #1b2b3a;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 32px 28px;
+        max-width: 440px;
+        width: 100%;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+      }
+      .poll-modal-title {
+        font-size: 1.15rem;
+        color: #fff;
+        font-weight: 700;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .poll-option-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+        align-items: center;
+      }
+      .poll-option-input {
+        flex: 1;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #4a6178;
+        background: #0d1f33;
+        color: #fff;
+        font-size: 0.9rem;
+        font-family: var(--font);
+        outline: none;
+      }
+      .poll-option-input:focus {
+        border-color: var(--blue);
+      }
+      .poll-option-remove {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(231, 76, 60, 0.2);
+        color: #e74c3c;
+        font-size: 0.85rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s;
+        flex-shrink: 0;
+      }
+      .poll-option-remove:hover {
+        background: rgba(231, 76, 60, 0.4);
+      }
+      .poll-add-option {
+        background: rgba(46, 117, 182, 0.15);
+        border: 1px dashed rgba(46, 117, 182, 0.4);
+        color: var(--blue-lt);
+        padding: 8px;
+        border-radius: 8px;
+        text-align: center;
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 500;
+        transition: all 0.15s;
+        margin-bottom: 16px;
+      }
+      .poll-add-option:hover {
+        background: rgba(46, 117, 182, 0.25);
+      }
+
+      /* Poll Bubble (in chat messages) */
+      .poll-bubble {
+        background: rgba(46, 117, 182, 0.08);
+        border: 1px solid rgba(46, 117, 182, 0.15);
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 6px;
+        min-width: 260px;
+      }
+      .poll-bubble-question {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: var(--navy);
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .poll-option-item {
+        position: relative;
+        margin-bottom: 6px;
+        cursor: pointer;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1.5px solid rgba(46, 117, 182, 0.2);
+        transition: all 0.2s;
+      }
+      .poll-option-item:hover {
+        border-color: var(--blue);
+      }
+      .poll-option-item.voted {
+        border-color: var(--blue);
+        background: rgba(46, 117, 182, 0.06);
+      }
+      .poll-option-bar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        background: linear-gradient(90deg, rgba(46, 117, 182, 0.15), rgba(46, 117, 182, 0.05));
+        border-radius: 6px;
+        transition: width 0.4s ease;
+      }
+      .poll-option-content {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 9px 12px;
+        font-size: 0.85rem;
+      }
+      .poll-option-text {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text);
+        font-weight: 500;
+      }
+      .poll-option-check {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 2px solid #94a3b8;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.6rem;
+        color: transparent;
+        transition: all 0.2s;
+        flex-shrink: 0;
+      }
+      .poll-option-item.voted .poll-option-check {
+        border-color: var(--blue);
+        background: var(--blue);
+        color: #fff;
+      }
+      .poll-option-count {
+        font-size: 0.78rem;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .poll-total {
+        font-size: 0.75rem;
+        color: var(--muted);
+        text-align: right;
+        margin-top: 6px;
+      }
     </style>
   </head>
   <body>
@@ -480,6 +807,25 @@
             </button>
           </div>
 
+          <!-- Blocked Overlay -->
+          <div class="blocked-overlay" id="blocked-overlay">
+            🚫 <span id="blocked-overlay-text">You blocked this user.</span>
+          </div>
+
+          <!-- Smart Replies (AI) -->
+          <div class="smart-replies-bar" id="smart-replies-bar" style="display: none">
+            <span class="smart-replies-label">✨ Suggested</span>
+            <div class="smart-replies-chips" id="smart-replies-chips"></div>
+            <button
+              class="smart-replies-refresh"
+              id="smart-replies-refresh"
+              onclick="fetchSmartReplies(true)"
+              title="Regenerate suggestions"
+            >
+              ↻
+            </button>
+          </div>
+
           <div
             class="chat-input-area"
             id="chat-input-area"
@@ -491,6 +837,14 @@
               title="Attach File"
             >
               📎
+            </button>
+            <button
+              class="poll-btn"
+              onclick="openPollModal()"
+              title="Create Poll"
+              id="btn-poll"
+            >
+              📊
             </button>
             <input
               type="file"
@@ -548,11 +902,79 @@
               <div class="member-role" id="member-self-role">You</div>
             </div>
           </div>
+          <!-- Block / Unblock Button (DMs only) -->
+          <button class="block-btn" id="btn-block-user" style="display: none" onclick="toggleBlockUser()">
+            🚫 Block User
+          </button>
         </div>
       </aside>
     </div>
 
+    <!-- Poll Creation Modal -->
+    <div
+      class="action-modal-overlay"
+      id="poll-modal"
+      style="display: none"
+      onclick="if (event.target === this) closePollModal();"
+    >
+      <div class="poll-modal-card">
+        <div class="poll-modal-title">📊 Create a Poll</div>
+        <div class="form-group" style="margin-bottom: 16px">
+          <input
+            type="text"
+            id="poll-question-input"
+            class="poll-option-input"
+            style="width: 100%; font-size: 0.95rem; font-weight: 600"
+            placeholder="Ask a question..."
+            maxlength="500"
+          />
+        </div>
+        <div id="poll-options-container">
+          <div class="poll-option-row">
+            <input type="text" class="poll-option-input poll-opt" placeholder="Option 1" maxlength="255" />
+          </div>
+          <div class="poll-option-row">
+            <input type="text" class="poll-option-input poll-opt" placeholder="Option 2" maxlength="255" />
+          </div>
+        </div>
+        <div class="poll-add-option" onclick="addPollOption()">
+          + Add Option
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end">
+          <button
+            class="btn-cancel"
+            onclick="closePollModal()"
+            style="
+              padding: 10px 20px;
+              background: transparent;
+              border: 1px solid #4a6178;
+              color: #94a3b8;
+              border-radius: 8px;
+              cursor: pointer;
+            "
+          >
+            Cancel
+          </button>
+          <button
+            id="poll-submit-btn"
+            onclick="submitPoll()"
+            style="
+              padding: 10px 20px;
+              background: var(--blue);
+              border: none;
+              color: white;
+              border-radius: 8px;
+              cursor: pointer;
+              font-weight: 600;
+            "
+          >
+            Send Poll
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Scripts -->
-    <script src="dashboard.js"></script>
+    <script src="dashboard.js?v=20260512-ai2"></script>
   </body>
 </html>

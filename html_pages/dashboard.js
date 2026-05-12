@@ -33,6 +33,15 @@ let appState = {
   typingTimeout: null,
   sseSource: null,
   isScrolledUp: false,
+  blockState: { i_blocked: false, they_blocked: false, any_block: false },
+  pollCache: {},
+  pollFetchInFlight: {},
+  // ─── AI ───
+  smartRepliesInFlight: false,
+  smartRepliesAbort: null,        // AbortController for in-flight smart-replies fetch
+  smartRepliesForConvId: null,    // which conv the current chips belong to
+  translationCache: {},           // { [msgId]: { translated, original, target_lang, showingTranslation } }
+  translationInFlight: {},        // { [msgId]: true }
 };
 
 // ─── Initialization ───
@@ -107,6 +116,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         closeForwardModal();
         closeMembersModal();
         closeModal();
+        closePollModal();
         // Cancel inline UI
         cancelReply();
         cancelAttachment();
@@ -199,6 +209,9 @@ function initSSE() {
           conversation_id: appState.activeConvId,
         }),
       });
+
+      // AI Smart Replies: refresh when *they* sent something new
+      if (hasIncoming) fetchSmartReplies(false);
     }
   });
 
@@ -246,6 +259,16 @@ function initSSE() {
       }
     });
     if (changed) renderMessages(false);
+  });
+
+  // Real-time poll vote sync
+  appState.sseSource.addEventListener("poll_update", (e) => {
+    const updatedMessageIds = JSON.parse(e.data);
+    updatedMessageIds.forEach((msgId) => {
+      // Invalidate cache so the re-fetch gets fresh vote counts
+      delete appState.pollCache[msgId];
+      fetchPollData(msgId);
+    });
   });
 
   appState.sseSource.addEventListener("reconnect", () => {
@@ -423,9 +446,14 @@ async function selectConversation(id) {
 
   appState.activeConvId = id;
   appState.messages = [];
+  appState.pollCache = {};
+  appState.pollFetchInFlight = {};
+  appState.translationCache = {};
+  appState.translationInFlight = {};
   appState.isScrolledUp = false;
   cancelReply();
   cancelAttachment();
+  clearSmartReplies();
   appState.forwardMessageId = null;
 
   renderConversations(); // Update active highlight
@@ -486,6 +514,37 @@ async function selectConversation(id) {
     cntBtn.style.display = "none";
   }
 
+  // ─── Block System: show/hide block button for DMs ───
+  const blockBtn = document.getElementById("btn-block-user");
+  const blockedOverlay = document.getElementById("blocked-overlay");
+  if (blockedOverlay) blockedOverlay.style.display = "none";
+  appState.blockState = { i_blocked: false, they_blocked: false, any_block: false };
+
+  if (blockBtn) {
+    if (conv.type === "direct") {
+      // Always show in DMs; toggleBlockUser handles missing other_user_id defensively
+      blockBtn.style.display = "block";
+      blockBtn.textContent = "🚫 Block User";
+      blockBtn.className = "block-btn";
+      if (conv.other_user_id) {
+        checkBlockStatus(conv.other_user_id, id);
+      } else {
+        console.warn("DM is missing other_user_id; block status check skipped.");
+      }
+    } else {
+      blockBtn.style.display = "none";
+    }
+  }
+
+  // ─── Poll button: show only for group/community when approved ───
+  const pollBtn = document.getElementById("btn-poll");
+  if (pollBtn) {
+    const canPoll =
+      (conv.type === "group" || conv.type === "community") &&
+      conv.my_status === "approved";
+    pollBtn.style.display = canPoll ? "flex" : "none";
+  }
+
   // Check participation status
   const inputArea = document.getElementById("chat-input-area");
   const msgContainer = document.getElementById("messages-container");
@@ -526,6 +585,9 @@ async function selectConversation(id) {
 
     // Auto-focus the input
     document.getElementById("message-input").focus();
+
+    // AI Smart Replies — kick off after initial messages render
+    fetchSmartReplies(false);
   }
 
   // Optimistically clear unread badge from sidebar
@@ -658,6 +720,20 @@ function renderMessages(forceScroll = false) {
       }
     }
 
+    // Poll rendering
+    let pollHtml = "";
+    if (msg.media_type === "poll" && !msg.deleted_for_all) {
+      const cachedPoll = appState.pollCache[msg.id];
+      if (cachedPoll) {
+        // Render directly from cache — no fetch needed
+        pollHtml = buildPollBubbleHtml(msg.id, cachedPoll);
+      } else {
+        pollHtml = `<div class="poll-bubble" id="poll-bubble-${msg.id}">
+          <div class="poll-bubble-question">📊 Loading poll...</div>
+        </div>`;
+      }
+    }
+
     // Reply context
     let replyHtml = "";
     if (msg.reply_to_id && msg.reply_content && !msg.deleted_for_all) {
@@ -684,18 +760,19 @@ function renderMessages(forceScroll = false) {
 
     const contentHtml = msg.deleted_for_all
       ? `<i style="color:var(--muted)">🚫 This message was deleted</i>`
-      : escapeHTML(msg.content);
+      : (msg.media_type === "poll" ? "" : escapeHTML(msg.content));
 
     html += `
-            <div class="msg-row ${isOwn ? "own" : ""} ${clusterClass} ${isClustered ? "clustered" : ""}" id="msg-${msg.id}">
+            <div class="msg-row ${isOwn ? "own" : ""} ${clusterClass} ${isClustered ? "clustered" : ""}" id="msg-${msg.id}" data-message-id="${msg.id}">
                 <div class="msg-group ${isOwn ? "own" : ""} ${clusterClass}">
                     ${showSenderInfo ? `<div class="msg-sender" style="color: ${senderColors[msg.sender_id % senderColors.length]}">${msg.first_name} ${msg.last_name} ${badgeHtml}</div>` : ""}
                     <div class="msg-bubble">
                         ${!msg.deleted_for_all ? `<div class="msg-menu-btn" onclick="showContextMenu(event, ${msg.id}, ${isOwn}, ${msg.deleted_for_all})">⌄</div>` : ""}
                         ${forwardHtml}
                         ${replyHtml}
+                        ${pollHtml}
                         ${mediaHtml}
-                        <div class="msg-content">${contentHtml}</div>
+                        ${contentHtml ? `<div class="msg-content">${contentHtml}</div>` : ""}
                         <div class="msg-time">${time} ${ticksHtml}</div>
                     </div>
                 </div>
@@ -706,6 +783,15 @@ function renderMessages(forceScroll = false) {
   });
 
   container.innerHTML = html;
+
+  // Fetch poll data only for uncached polls (prevents N+1 request storm)
+  appState.messages.forEach((msg) => {
+    if (msg.media_type === "poll" && !msg.deleted_for_all
+        && !appState.pollCache[msg.id]
+        && !appState.pollFetchInFlight[msg.id]) {
+      fetchPollData(msg.id);
+    }
+  });
 
   // Audio mutex handled by delegated listener in DOMContentLoaded
 
@@ -815,6 +901,9 @@ async function sendMessage() {
   if (sendBtn) sendBtn.textContent = "🎤"; // Reset to mic
   cancelReply();
   cancelAttachment();
+  // Hide stale smart-reply chips after sending; new ones will appear when the
+  // other party replies (SSE callback re-triggers fetchSmartReplies).
+  clearSmartReplies();
   clearTimeout(appState.typingTimeout);
   const hdrStatus = document.getElementById("chat-header-status");
   if (hdrStatus && hdrStatus.classList.contains("typing")) {
@@ -901,9 +990,18 @@ function showContextMenu(e, msgId, isOwn, isDeleted) {
   menu.style.left = `${e.pageX}px`;
   menu.style.top = `${e.pageY}px`;
 
+  // Show Translate only when the message has text content
+  const msgForMenu = appState.messages.find((m) => m.id == msgId);
+  const canTranslate = !!(msgForMenu && msgForMenu.content && !msgForMenu.deleted_for_all);
+  const isTranslated = !!(
+    appState.translationCache[msgId] &&
+    appState.translationCache[msgId].showingTranslation
+  );
+
   menu.innerHTML = `
         <div class="msg-context-item" onclick="initReply(${msgId})">↩ Reply</div>
         <div class="msg-context-item" onclick="openForwardModal(${msgId})">↪ Forward</div>
+        ${canTranslate ? `<div class="msg-context-item" onclick="translateMessage(${msgId})">${isTranslated ? "↺ Show original" : "🌐 Translate"}</div>` : ""}
         <div class="msg-context-item danger" onclick="deleteMessage(${msgId}, 'for_me')">🗑 Delete for me</div>
         ${isOwn ? `<div class="msg-context-item danger" onclick="deleteMessage(${msgId}, 'for_all')">🚫 Delete for everyone</div>` : ""}
     `;
@@ -1574,5 +1672,601 @@ function scrollToMessage(id) {
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     el.style.backgroundColor = "rgba(46,117,182,0.2)";
     setTimeout(() => (el.style.backgroundColor = "transparent"), 1500);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// ─── FEATURE: Blocking System (Direct Messages) ───
+// ═══════════════════════════════════════════════
+
+async function checkBlockStatus(targetUserId, forConvId) {
+  try {
+    const res = await fetch("../api/chat/manage_conversations.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        action: "check_block",
+        target_user_id: targetUserId,
+      }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (appState.activeConvId !== forConvId) return; // stale — discard
+      appState.blockState = {
+        i_blocked: data.i_blocked,
+        they_blocked: data.they_blocked,
+        any_block: data.any_block,
+      };
+      updateBlockUI();
+    }
+  } catch (e) {
+    console.error("Failed to check block status:", e);
+  }
+}
+
+function updateBlockUI() {
+  const blockBtn = document.getElementById("btn-block-user");
+  const blockedOverlay = document.getElementById("blocked-overlay");
+  const blockedText = document.getElementById("blocked-overlay-text");
+  const inputArea = document.getElementById("chat-input-area");
+
+  if (appState.blockState.i_blocked) {
+    // I blocked them
+    blockBtn.textContent = "✅ Unblock User";
+    blockBtn.className = "block-btn unblock";
+    blockedOverlay.style.display = "block";
+    blockedText.textContent = "You blocked this user. Unblock to continue messaging.";
+    inputArea.style.display = "none";
+    clearSmartReplies();
+  } else if (appState.blockState.they_blocked) {
+    // They blocked me
+    blockBtn.style.display = "none"; // Can't unblock someone who blocked you
+    blockedOverlay.style.display = "block";
+    blockedText.textContent = "You can't send messages to this user.";
+    inputArea.style.display = "none";
+    clearSmartReplies();
+  } else {
+    // No block
+    blockBtn.textContent = "🚫 Block User";
+    blockBtn.className = "block-btn";
+    blockedOverlay.style.display = "none";
+    // Only show input if the conversation is approved
+    const conv = appState.conversations.find(
+      (c) => c.id == appState.activeConvId,
+    );
+    if (conv && conv.my_status === "approved") {
+      inputArea.style.display = "flex";
+    }
+  }
+}
+
+async function toggleBlockUser() {
+  const conv = appState.conversations.find(
+    (c) => c.id == appState.activeConvId,
+  );
+  if (!conv || conv.type !== "direct" || !conv.other_user_id) return;
+
+  const isBlocking = !appState.blockState.i_blocked;
+  const action = isBlocking ? "block_user" : "unblock_user";
+
+  if (
+    isBlocking &&
+    !confirm(
+      "Block this user? They won't be able to send you messages and you won't be able to send them messages.",
+    )
+  ) {
+    return;
+  }
+
+  try {
+    const res = await fetch("../api/chat/manage_conversations.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        action: action,
+        target_user_id: conv.other_user_id,
+      }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(
+        isBlocking ? "🚫" : "✅",
+        data.message,
+        isBlocking ? "#e74c3c" : "#22c55e",
+      );
+      // Re-check block status to update UI
+      await checkBlockStatus(conv.other_user_id, appState.activeConvId);
+    } else {
+      alert(data.message);
+    }
+  } catch (e) {
+    console.error("Block/unblock failed:", e);
+    alert("Failed to update block status.");
+  }
+}
+
+// ═══════════════════════════════════════════════
+// ─── FEATURE: Group Chat Polls ───
+// ═══════════════════════════════════════════════
+
+function openPollModal() {
+  if (!appState.activeConvId) {
+    showToast("⚠️", "Open a group or community first", "#e67e22");
+    return;
+  }
+
+  // Guard: polls only in groups/communities
+  const conv = appState.conversations.find(
+    (c) => c.id == appState.activeConvId,
+  );
+  if (!conv || (conv.type !== "group" && conv.type !== "community")) {
+    showToast("⚠️", "Polls are only available in groups and communities", "#e67e22");
+    return;
+  }
+
+  const modal = document.getElementById("poll-modal");
+  if (!modal) {
+    console.error("openPollModal: #poll-modal not found in DOM");
+    alert("Poll dialog is missing from the page. Please refresh.");
+    return;
+  }
+
+  // Move modal to <body> so it can never be clipped by ancestor stacking contexts
+  if (modal.parentElement !== document.body) {
+    document.body.appendChild(modal);
+  }
+  modal.style.display = "flex";
+  modal.style.zIndex = "10000";
+
+  // Reset form
+  const qInput = document.getElementById("poll-question-input");
+  const container = document.getElementById("poll-options-container");
+  if (qInput) qInput.value = "";
+  if (container) {
+    container.innerHTML = `
+      <div class="poll-option-row">
+        <input type="text" class="poll-option-input poll-opt" placeholder="Option 1" maxlength="255" />
+      </div>
+      <div class="poll-option-row">
+        <input type="text" class="poll-option-input poll-opt" placeholder="Option 2" maxlength="255" />
+      </div>
+    `;
+  }
+
+  // Focus the question input
+  setTimeout(() => {
+    const q = document.getElementById("poll-question-input");
+    if (q) q.focus();
+  }, 100);
+}
+
+function closePollModal() {
+  document.getElementById("poll-modal").style.display = "none";
+}
+
+function addPollOption() {
+  const container = document.getElementById("poll-options-container");
+  const optCount = container.querySelectorAll(".poll-opt").length;
+  if (optCount >= 10) {
+    showToast("⚠️", "Maximum 10 options allowed", "#e67e22");
+    return;
+  }
+
+  const row = document.createElement("div");
+  row.className = "poll-option-row";
+  row.innerHTML = `
+    <input type="text" class="poll-option-input poll-opt" placeholder="Option ${optCount + 1}" maxlength="255" />
+    <button class="poll-option-remove" onclick="removePollOption(this)" title="Remove option">✕</button>
+  `;
+  container.appendChild(row);
+  row.querySelector("input").focus();
+}
+
+function removePollOption(btn) {
+  const container = document.getElementById("poll-options-container");
+  const rows = container.querySelectorAll(".poll-option-row");
+  if (rows.length <= 2) {
+    showToast("⚠️", "A poll needs at least 2 options", "#e67e22");
+    return;
+  }
+  btn.closest(".poll-option-row").remove();
+}
+
+async function submitPoll() {
+  const question = document.getElementById("poll-question-input").value.trim();
+  const optInputs = document.querySelectorAll("#poll-options-container .poll-opt");
+  const options = [];
+
+  optInputs.forEach((inp) => {
+    const val = inp.value.trim();
+    if (val) options.push(val);
+  });
+
+  if (!question) {
+    showToast("⚠️", "Please enter a question", "#e67e22");
+    document.getElementById("poll-question-input").focus();
+    return;
+  }
+
+  if (options.length < 2) {
+    showToast("⚠️", "Please add at least 2 options", "#e67e22");
+    return;
+  }
+
+  // Disable button to prevent double-send
+  const submitBtn = document.getElementById("poll-submit-btn");
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Sending...";
+
+  try {
+    const formData = new FormData();
+    formData.append("conversation_id", appState.activeConvId);
+    formData.append("poll_question", question);
+    options.forEach((opt) => formData.append("poll_options[]", opt));
+
+    const res = await fetch("../api/chat/send_message.php", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      closePollModal();
+      showToast("📊", "Poll created!", "#2e75b6");
+    } else {
+      alert("Error creating poll: " + data.message);
+    }
+  } catch (e) {
+    console.error("Failed to create poll:", e);
+    alert("Failed to create poll.");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Send Poll";
+  }
+}
+
+async function fetchPollData(messageId) {
+  appState.pollFetchInFlight[messageId] = true;
+  try {
+    const res = await fetch(
+      `../api/chat/polls.php?message_id=${messageId}`,
+    );
+    const data = await res.json();
+
+    if (data.success && data.poll) {
+      // Cache the poll data so subsequent renders skip the fetch
+      appState.pollCache[messageId] = data.poll;
+      renderPollBubble(messageId, data.poll);
+    }
+  } catch (e) {
+    console.error("Failed to fetch poll data:", e);
+  } finally {
+    delete appState.pollFetchInFlight[messageId];
+  }
+}
+
+// Build poll bubble HTML string (used by both cache-hit rendering and DOM patching)
+function buildPollBubbleHtml(messageId, poll) {
+  let optionsHtml = "";
+  poll.options.forEach((opt) => {
+    const pct =
+      poll.total_votes > 0
+        ? Math.round((opt.vote_count / poll.total_votes) * 100)
+        : 0;
+    const isVoted = poll.my_vote_option_id === opt.option_id;
+
+    optionsHtml += `
+      <div class="poll-option-item ${isVoted ? "voted" : ""}"
+           onclick="votePoll(${messageId}, ${opt.option_id})">
+        <div class="poll-option-bar" style="width: ${pct}%"></div>
+        <div class="poll-option-content">
+          <div class="poll-option-text">
+            <span class="poll-option-check">${isVoted ? "✓" : ""}</span>
+            ${escapeHTML(opt.option_text)}
+          </div>
+          <span class="poll-option-count">${opt.vote_count} vote${opt.vote_count !== 1 ? "s" : ""} · ${pct}%</span>
+        </div>
+      </div>
+    `;
+  });
+
+  return `<div class="poll-bubble" id="poll-bubble-${messageId}">
+    <div class="poll-bubble-question">📊 ${escapeHTML(poll.question)}</div>
+    ${optionsHtml}
+    <div class="poll-total">${poll.total_votes} total vote${poll.total_votes !== 1 ? "s" : ""}</div>
+  </div>`;
+}
+
+function renderPollBubble(messageId, poll) {
+  const bubble = document.getElementById(`poll-bubble-${messageId}`);
+  if (!bubble) return;
+
+  // Re-use the shared builder, but only inject innerHTML (bubble div already exists)
+  let optionsHtml = "";
+  poll.options.forEach((opt) => {
+    const pct =
+      poll.total_votes > 0
+        ? Math.round((opt.vote_count / poll.total_votes) * 100)
+        : 0;
+    const isVoted = poll.my_vote_option_id === opt.option_id;
+
+    optionsHtml += `
+      <div class="poll-option-item ${isVoted ? "voted" : ""}"
+           onclick="votePoll(${messageId}, ${opt.option_id})">
+        <div class="poll-option-bar" style="width: ${pct}%"></div>
+        <div class="poll-option-content">
+          <div class="poll-option-text">
+            <span class="poll-option-check">${isVoted ? "✓" : ""}</span>
+            ${escapeHTML(opt.option_text)}
+          </div>
+          <span class="poll-option-count">${opt.vote_count} vote${opt.vote_count !== 1 ? "s" : ""} · ${pct}%</span>
+        </div>
+      </div>
+    `;
+  });
+
+  bubble.innerHTML = `
+    <div class="poll-bubble-question">📊 ${escapeHTML(poll.question)}</div>
+    ${optionsHtml}
+    <div class="poll-total">${poll.total_votes} total vote${poll.total_votes !== 1 ? "s" : ""}</div>
+  `;
+}
+
+async function votePoll(messageId, optionId) {
+  try {
+    const res = await fetch("../api/chat/polls.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        message_id: messageId,
+        option_id: optionId,
+      }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      // Invalidate cache so the next fetch gets fresh vote counts
+      delete appState.pollCache[messageId];
+      await fetchPollData(messageId);
+    } else {
+      showToast("⚠️", data.message || "Failed to vote", "#e67e22");
+    }
+  } catch (e) {
+    console.error("Failed to vote:", e);
+    showToast("❌", "Connection error", "#e74c3c");
+  }
+}
+
+// ═══════════════════════════════════════════════
+// ─── FEATURE: AI Smart Replies ───
+// Suggests 3 short replies based on the most recent incoming message.
+// ═══════════════════════════════════════════════
+
+function clearSmartReplies() {
+  const bar = document.getElementById("smart-replies-bar");
+  const chips = document.getElementById("smart-replies-chips");
+  if (chips) chips.innerHTML = "";
+  if (bar) bar.style.display = "none";
+  if (appState.smartRepliesAbort) {
+    try { appState.smartRepliesAbort.abort(); } catch (_) {}
+    appState.smartRepliesAbort = null;
+  }
+  appState.smartRepliesForConvId = null;
+}
+
+function renderSmartReplyChips(replies) {
+  const bar = document.getElementById("smart-replies-bar");
+  const chips = document.getElementById("smart-replies-chips");
+  if (!bar || !chips) return;
+
+  if (!Array.isArray(replies) || replies.length === 0) {
+    bar.style.display = "none";
+    chips.innerHTML = "";
+    return;
+  }
+
+  chips.innerHTML = replies
+    .map(
+      (r) =>
+        `<button class="smart-reply-chip" type="button" onclick="sendSmartReply(this)">${escapeHTML(
+          r,
+        )}</button>`,
+    )
+    .join("");
+  bar.style.display = "flex";
+}
+
+async function fetchSmartReplies(force = false) {
+  const convId = appState.activeConvId;
+  if (!convId) {
+    clearSmartReplies();
+    return;
+  }
+
+  // Only suggest in approved conversations
+  const conv = appState.conversations.find((c) => c.id == convId);
+  if (!conv || conv.my_status !== "approved") {
+    clearSmartReplies();
+    return;
+  }
+
+  // Suppress while blocked
+  if (appState.blockState && appState.blockState.any_block) {
+    clearSmartReplies();
+    return;
+  }
+
+  // Skip while user is mid-compose (don't overwrite a draft they're typing)
+  if (!force) {
+    const input = document.getElementById("message-input");
+    if (input && input.value.trim().length > 0) return;
+  }
+
+  if (appState.smartRepliesInFlight) return;
+  appState.smartRepliesInFlight = true;
+
+  // Cancel any in-flight previous request
+  if (appState.smartRepliesAbort) {
+    try { appState.smartRepliesAbort.abort(); } catch (_) {}
+  }
+  appState.smartRepliesAbort = new AbortController();
+
+  const bar = document.getElementById("smart-replies-bar");
+  const chips = document.getElementById("smart-replies-chips");
+  const refresh = document.getElementById("smart-replies-refresh");
+  if (bar && chips) {
+    bar.style.display = "flex";
+    chips.innerHTML = `<span class="smart-replies-empty">Thinking…</span>`;
+  }
+  if (refresh) refresh.classList.add("spinning");
+
+  try {
+    const res = await fetch("../api/chat/ai_assist.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        action: "smart_replies",
+        conversation_id: convId,
+      }),
+      signal: appState.smartRepliesAbort.signal,
+    });
+    const data = await res.json();
+
+    // Drop stale responses if the user switched conversations meanwhile
+    if (appState.activeConvId != convId) return;
+
+    if (data.success) {
+      appState.smartRepliesForConvId = convId;
+      if (!data.replies || data.replies.length === 0) {
+        clearSmartReplies();
+      } else {
+        renderSmartReplyChips(data.replies);
+      }
+    } else {
+      console.warn("smart_replies failed:", data.message);
+      clearSmartReplies();
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      console.error("smart_replies error:", e);
+    }
+    clearSmartReplies();
+  } finally {
+    appState.smartRepliesInFlight = false;
+    if (refresh) refresh.classList.remove("spinning");
+  }
+}
+
+// Called by the chip's onclick. Sets the input value, then sends.
+function sendSmartReply(chipEl) {
+  const text = chipEl ? chipEl.textContent.trim() : "";
+  if (!text) return;
+  const input = document.getElementById("message-input");
+  if (!input) return;
+  input.value = text;
+  // Trigger normal send pipeline (handles typing-stop, receipts, etc.)
+  if (typeof updateSendButtonState === "function") updateSendButtonState();
+  sendMessage();
+  // Chips will be re-fetched after send completes (sendMessage clears them);
+  // hide immediately for responsiveness.
+  clearSmartReplies();
+}
+
+// ═══════════════════════════════════════════════
+// ─── FEATURE: AI Translate Message ───
+// Inline translate in the context menu. Toggles between original and translation.
+// ═══════════════════════════════════════════════
+
+async function translateMessage(msgId) {
+  closeContextMenu();
+  if (appState.translationInFlight[msgId]) return;
+
+  const msg = appState.messages.find((m) => m.id == msgId);
+  if (!msg || !msg.content) {
+    showToast("⚠️", "Nothing to translate", "#e67e22");
+    return;
+  }
+
+  const bubble = document.querySelector(
+    `[data-message-id="${msgId}"] .msg-content`,
+  );
+  if (!bubble) {
+    showToast("⚠️", "Could not find message", "#e67e22");
+    return;
+  }
+
+  // Toggle off if already translated
+  const cached = appState.translationCache[msgId];
+  if (cached && cached.showingTranslation) {
+    bubble.innerHTML = escapeHTML(cached.original);
+    // Remove the badge if present
+    const tag = document.querySelector(`#ai-tag-${msgId}`);
+    if (tag) tag.remove();
+    cached.showingTranslation = false;
+    return;
+  }
+
+  // If cached, re-show without hitting backend
+  if (cached && cached.translated) {
+    applyTranslationToBubble(msgId, cached.translated);
+    cached.showingTranslation = true;
+    return;
+  }
+
+  appState.translationInFlight[msgId] = true;
+  const originalHTML = bubble.innerHTML;
+  bubble.innerHTML = `<span style="opacity:0.6;font-style:italic;">Translating…</span>`;
+
+  try {
+    const res = await fetch("../api/chat/ai_assist.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        action: "translate",
+        message_id: msgId,
+        target_lang: "English",
+      }),
+    });
+    const data = await res.json();
+    if (data.success && data.translated) {
+      appState.translationCache[msgId] = {
+        original: data.original,
+        translated: data.translated,
+        target_lang: data.target_lang,
+        showingTranslation: true,
+      };
+      applyTranslationToBubble(msgId, data.translated);
+    } else {
+      bubble.innerHTML = originalHTML;
+      showToast("⚠️", data.message || "Translation failed", "#e67e22");
+    }
+  } catch (e) {
+    console.error("translate error:", e);
+    bubble.innerHTML = originalHTML;
+    showToast("❌", "Translation failed", "#e74c3c");
+  } finally {
+    delete appState.translationInFlight[msgId];
+  }
+}
+
+function applyTranslationToBubble(msgId, translated) {
+  const bubble = document.querySelector(
+    `[data-message-id="${msgId}"] .msg-content`,
+  );
+  if (!bubble) return;
+  bubble.innerHTML = escapeHTML(translated);
+
+  // Append "Translated by AI" badge if not already there
+  if (!document.getElementById(`ai-tag-${msgId}`)) {
+    const tag = document.createElement("span");
+    tag.id = `ai-tag-${msgId}`;
+    tag.className = "ai-translated-tag";
+    tag.textContent = "✨ Translated by AI — show original";
+    tag.title = "Click to show the original";
+    tag.onclick = (e) => {
+      e.stopPropagation();
+      translateMessage(msgId);
+    };
+    bubble.parentElement.appendChild(tag);
   }
 }
