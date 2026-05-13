@@ -26,6 +26,42 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// ─── Local .env loading (optional) ───
+// Looks for .env in project root and /api for local dev (XAMPP).
+$env_paths = [
+    dirname(__DIR__, 2) . '/.env',
+    dirname(__DIR__) . '/.env'
+];
+
+foreach ($env_paths as $env_path) {
+    if (!is_readable($env_path)) {
+        continue;
+    }
+    $lines = file($env_path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) {
+        continue;
+    }
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+        $pos = strpos($line, '=');
+        if ($pos === false) {
+            continue;
+        }
+        $key = trim(substr($line, 0, $pos));
+        $value = trim(substr($line, $pos + 1));
+        if ($value !== '' && $value[0] === '"' && substr($value, -1) === '"') {
+            $value = substr($value, 1, -1);
+        }
+        if ($key !== '' && getenv($key) === false) {
+            putenv($key . '=' . $value);
+            $_ENV[$key] = $value;
+        }
+    }
+}
+
 // ─── Config ───
 // NOTE: Keep API keys in environment variables (server-side only).
 $GEMINI_API_KEY = getenv('GEMINI_API_KEY') ?: '';
