@@ -4,9 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NexTalk — Dashboard</title>
-    <link rel="stylesheet" href="style.css" />
     <style>
-      /* Additional styles for new chat features */
+      /* Additional styles for new chat features
+         NOTE: this block is intentionally placed BEFORE the external stylesheet
+         so the canonical theme in style.css (loaded after) wins on equal
+         specificity. Keep new theming there, not here. */
       .chat-btn-join {
         background: var(--blue);
         color: white;
@@ -169,34 +171,37 @@
         padding: 10px 16px;
         background: linear-gradient(
           90deg,
-          rgba(46, 117, 182, 0.12),
-          rgba(124, 58, 237, 0.14)
+          rgba(0, 168, 132, 0.10),
+          rgba(83, 189, 235, 0.12)
         );
-        border-top: 1px solid rgba(91, 33, 182, 0.35);
-        border-bottom: 1px solid rgba(91, 33, 182, 0.25);
+        border-top: 1px solid rgba(0, 168, 132, 0.28);
+        border-bottom: 1px solid rgba(0, 168, 132, 0.18);
       }
       .smart-replies-label {
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 1px;
-        color: #5b21b6;
+        letter-spacing: 1.2px;
+        color: #008f6b;
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
       }
       .smart-replies-chips {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
         flex: 1;
-        min-height: 28px;
+        min-height: 30px;
         align-items: center;
       }
       .smart-reply-chip {
         background: #ffffff;
-        border: 1.5px solid #7c3aed;
-        color: #4c1d95;
+        border: 1.5px solid #00a884;
+        color: #008f6b;
         padding: 7px 14px;
-        border-radius: 18px;
+        border-radius: 999px;
         font-size: 0.85rem;
         font-weight: 600;
         cursor: pointer;
@@ -205,13 +210,13 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        box-shadow: 0 1px 3px rgba(91, 33, 182, 0.18);
+        box-shadow: 0 1px 3px rgba(0, 143, 107, 0.15);
       }
       .smart-reply-chip:hover {
-        background: #7c3aed;
+        background: #00a884;
         color: #ffffff;
         transform: translateY(-1px);
-        box-shadow: 0 3px 8px rgba(91, 33, 182, 0.35);
+        box-shadow: 0 4px 10px rgba(0, 143, 107, 0.35);
       }
       .smart-reply-chip:disabled {
         opacity: 0.5;
@@ -219,10 +224,10 @@
       }
       .smart-replies-refresh {
         background: #ffffff;
-        border: 1.5px solid #7c3aed;
-        color: #5b21b6;
-        width: 30px;
-        height: 30px;
+        border: 1.5px solid #00a884;
+        color: #008f6b;
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
         cursor: pointer;
         font-size: 1rem;
@@ -234,7 +239,7 @@
         justify-content: center;
       }
       .smart-replies-refresh:hover {
-        background: #7c3aed;
+        background: #00a884;
         color: #ffffff;
       }
       .smart-replies-refresh.spinning {
@@ -245,7 +250,7 @@
         to { transform: rotate(360deg); }
       }
       .smart-replies-empty {
-        color: #5b21b6;
+        color: #008f6b;
         font-size: 0.82rem;
         font-style: italic;
         font-weight: 500;
@@ -452,6 +457,7 @@
         margin-top: 6px;
       }
     </style>
+    <link rel="stylesheet" href="style.css?v=20260512-gui2" />
   </head>
   <body>
     <!-- Auth Guard Loading Screen -->
@@ -466,66 +472,18 @@
     <!-- Action Modal -->
     <div class="action-modal-overlay" id="action-modal" style="display: none">
       <div class="action-modal-card">
-        <div
-          class="modal-title"
-          id="modal-title"
-          style="
-            font-size: 1.2rem;
-            color: #fff;
-            margin-bottom: 15px;
-            font-weight: bold;
-          "
-        >
-          Title
-        </div>
+        <div class="modal-title" id="modal-title">Title</div>
         <div class="form-group" style="margin-bottom: 20px">
           <input
             type="text"
             id="modal-input"
-            class="form-input"
-            style="
-              width: 100%;
-              padding: 12px;
-              border-radius: 8px;
-              border: 1px solid #4a6178;
-              background: #0d1f33;
-              color: #fff;
-            "
+            class="form-input modal-text-input"
             placeholder="Enter here..."
           />
         </div>
-        <div
-          class="modal-actions"
-          style="display: flex; gap: 10px; justify-content: flex-end"
-        >
-          <button
-            class="btn-cancel"
-            onclick="closeModal()"
-            style="
-              padding: 10px 20px;
-              background: transparent;
-              border: 1px solid #4a6178;
-              color: #94a3b8;
-              border-radius: 8px;
-              cursor: pointer;
-            "
-          >
-            Cancel
-          </button>
-          <button
-            class="btn-submit"
-            id="modal-submit"
-            style="
-              padding: 10px 20px;
-              background: var(--blue);
-              border: none;
-              color: white;
-              border-radius: 8px;
-              cursor: pointer;
-            "
-          >
-            Submit
-          </button>
+        <div class="modal-actions" style="display: flex; gap: 10px; justify-content: flex-end">
+          <button class="btn-cancel modal-btn-cancel" onclick="closeModal()">Cancel</button>
+          <button class="btn-submit modal-btn-submit" id="modal-submit">Submit</button>
         </div>
       </div>
     </div>
@@ -559,17 +517,7 @@
       onclick="if (event.target === this) closeForwardModal();"
     >
       <div class="action-modal-card" style="max-width: 500px">
-        <div
-          class="modal-title"
-          style="
-            font-size: 1.2rem;
-            color: #fff;
-            margin-bottom: 15px;
-            font-weight: bold;
-          "
-        >
-          Forward Message To...
-        </div>
+        <div class="modal-title">Forward Message To...</div>
         <div class="sidebar-search-box" style="padding: 0 0 15px 0">
           <input
             type="text"
@@ -940,41 +888,14 @@
         <div class="poll-add-option" onclick="addPollOption()">
           + Add Option
         </div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end">
-          <button
-            class="btn-cancel"
-            onclick="closePollModal()"
-            style="
-              padding: 10px 20px;
-              background: transparent;
-              border: 1px solid #4a6178;
-              color: #94a3b8;
-              border-radius: 8px;
-              cursor: pointer;
-            "
-          >
-            Cancel
-          </button>
-          <button
-            id="poll-submit-btn"
-            onclick="submitPoll()"
-            style="
-              padding: 10px 20px;
-              background: var(--blue);
-              border: none;
-              color: white;
-              border-radius: 8px;
-              cursor: pointer;
-              font-weight: 600;
-            "
-          >
-            Send Poll
-          </button>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px;">
+          <button class="btn-cancel modal-btn-cancel" onclick="closePollModal()">Cancel</button>
+          <button id="poll-submit-btn" class="modal-btn-submit" onclick="submitPoll()">Send Poll</button>
         </div>
       </div>
     </div>
 
     <!-- Scripts -->
-    <script src="dashboard.js?v=20260512-ai2"></script>
+    <script src="dashboard.js?v=20260512-gui2"></script>
   </body>
 </html>
