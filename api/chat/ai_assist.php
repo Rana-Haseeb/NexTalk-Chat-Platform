@@ -27,9 +27,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // ─── Config ───
-// NOTE: API key is server-side only. Never expose this to the client.
-$GEMINI_API_KEY = 'REDACTED';
-$GEMINI_MODEL   = 'gemini-2.5-flash'; // fast + cheap; good for chips/translation
+// NOTE: Keep API keys in environment variables (server-side only).
+$GEMINI_API_KEY = getenv('GEMINI_API_KEY') ?: '';
+$GEMINI_MODEL   = getenv('GEMINI_MODEL') ?: 'gemini-2.5-flash'; // fast + cheap; good for chips/translation
+
+if ($GEMINI_API_KEY === '') {
+    http_response_code(500);
+    echo json_encode([
+        "success" => false,
+        "message" => "Server misconfigured: GEMINI_API_KEY is not set"
+    ]);
+    exit;
+}
 
 
 
